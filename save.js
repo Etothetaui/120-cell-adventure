@@ -1,5 +1,3 @@
-(() => {
-'use strict';
 const GAME_NAME = '120-cell-adventure';
 const GAME_VERSION = '0.1.0-dev';
 const SAVE_SCHEMA = 1;
@@ -83,4 +81,3 @@ function clearLocal() {
 }
 
 window.AdventureSave = { GAME_NAME, GAME_VERSION, SAVE_SCHEMA, STORAGE_KEY, encodeSave, decodeSave, saveLocal, loadLocal, clearLocal };
-})();
