@@ -483,69 +483,99 @@ function resolveCircle(pos, vel, segments, radius) {
   return grounded;
 }
 function sweepCircleAgainstWalls(prev, pos, vel, segments, radius) {
-  const dx = pos.x - prev.x;
-  const dy = pos.y - prev.y;
-  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return false;
+  const EPS = 1e-7;
+  let remainingX = pos.x - prev.x;
+  let remainingY = pos.y - prev.y;
+  if (Math.abs(remainingX) < EPS && Math.abs(remainingY) < EPS) return false;
 
-  let hit = null;
-  const recordHit = (t, axis, clamp, grounded) => {
-    if (t < -1e-8 || t > 1 + 1e-8) return;
-    if (!hit || t < hit.t) hit = { t: Math.max(0, Math.min(1, t)), axis, clamp, grounded };
-  };
+  let x = prev.x;
+  let y = prev.y;
+  let grounded = false;
 
-  for (const s of segments) {
-    const vertical = Math.abs(s.x1 - s.x2) < 1e-8;
-    const horizontal = Math.abs(s.y1 - s.y2) < 1e-8;
-    if (vertical && Math.abs(dx) > 1e-9) {
-      const wallX = s.x1;
-      const yMin = Math.min(s.y1, s.y2), yMax = Math.max(s.y1, s.y2);
-      if (dx > 0) {
-        const clampX = wallX - radius;
-        if (prev.x <= clampX && pos.x > clampX) {
-          const t = (clampX - prev.x) / dx;
-          const yAtHit = prev.y + dy * t;
-          if (yAtHit >= yMin - 1e-6 && yAtHit <= yMax + 1e-6) recordHit(t, 'x', clampX, false);
+  const findHit = (rx, ry) => {
+    let hit = null;
+    const recordHit = (t, axis, clamp, groundedHit) => {
+      if (t < -EPS || t > 1 + EPS) return;
+      const clampedT = Math.max(0, Math.min(1, t));
+      if (!hit || clampedT < hit.t) hit = { t: clampedT, axis, clamp, grounded: groundedHit };
+    };
+
+    for (const s of segments) {
+      const vertical = Math.abs(s.x1 - s.x2) < EPS;
+      const horizontal = Math.abs(s.y1 - s.y2) < EPS;
+      if (vertical && Math.abs(rx) > EPS) {
+        const wallX = s.x1;
+        const yMin = Math.min(s.y1, s.y2), yMax = Math.max(s.y1, s.y2);
+        if (rx > 0) {
+          const clampX = wallX - radius;
+          if (x <= clampX + EPS && x + rx > clampX + EPS) {
+            const t = (clampX - x) / rx;
+            const yAtHit = y + ry * t;
+            if (yAtHit >= yMin - EPS && yAtHit <= yMax + EPS) recordHit(t, 'x', clampX, false);
+          }
+        } else {
+          const clampX = wallX + radius;
+          if (x >= clampX - EPS && x + rx < clampX - EPS) {
+            const t = (clampX - x) / rx;
+            const yAtHit = y + ry * t;
+            if (yAtHit >= yMin - EPS && yAtHit <= yMax + EPS) recordHit(t, 'x', clampX, false);
+          }
         }
-      } else {
-        const clampX = wallX + radius;
-        if (prev.x >= clampX && pos.x < clampX) {
-          const t = (clampX - prev.x) / dx;
-          const yAtHit = prev.y + dy * t;
-          if (yAtHit >= yMin - 1e-6 && yAtHit <= yMax + 1e-6) recordHit(t, 'x', clampX, false);
-        }
-      }
-    } else if (horizontal && Math.abs(dy) > 1e-9) {
-      const wallY = s.y1;
-      const xMin = Math.min(s.x1, s.x2), xMax = Math.max(s.x1, s.x2);
-      if (dy > 0) {
-        const clampY = wallY - radius;
-        if (prev.y <= clampY && pos.y > clampY) {
-          const t = (clampY - prev.y) / dy;
-          const xAtHit = prev.x + dx * t;
-          if (xAtHit >= xMin - 1e-6 && xAtHit <= xMax + 1e-6) recordHit(t, 'y', clampY, true);
-        }
-      } else {
-        const clampY = wallY + radius;
-        if (prev.y >= clampY && pos.y < clampY) {
-          const t = (clampY - prev.y) / dy;
-          const xAtHit = prev.x + dx * t;
-          if (xAtHit >= xMin - 1e-6 && xAtHit <= xMax + 1e-6) recordHit(t, 'y', clampY, false);
+      } else if (horizontal && Math.abs(ry) > EPS) {
+        const wallY = s.y1;
+        const xMin = Math.min(s.x1, s.x2), xMax = Math.max(s.x1, s.x2);
+        if (ry > 0) {
+          const clampY = wallY - radius;
+          if (y <= clampY + EPS && y + ry > clampY + EPS) {
+            const t = (clampY - y) / ry;
+            const xAtHit = x + rx * t;
+            if (xAtHit >= xMin - EPS && xAtHit <= xMax + EPS) recordHit(t, 'y', clampY, true);
+          }
+        } else {
+          const clampY = wallY + radius;
+          if (y >= clampY - EPS && y + ry < clampY - EPS) {
+            const t = (clampY - y) / ry;
+            const xAtHit = x + rx * t;
+            if (xAtHit >= xMin - EPS && xAtHit <= xMax + EPS) recordHit(t, 'y', clampY, false);
+          }
         }
       }
     }
+    return hit;
+  };
+
+  for (let iter = 0; iter < 3; iter++) {
+    if (Math.abs(remainingX) < EPS && Math.abs(remainingY) < EPS) break;
+    const hit = findHit(remainingX, remainingY);
+    if (!hit) {
+      x += remainingX;
+      y += remainingY;
+      remainingX = 0;
+      remainingY = 0;
+      break;
+    }
+
+    x += remainingX * hit.t;
+    y += remainingY * hit.t;
+    const leftover = 1 - hit.t;
+
+    if (hit.axis === 'x') {
+      x = hit.clamp;
+      remainingX = 0;
+      remainingY *= leftover;
+      vel.vx = 0;
+    } else {
+      y = hit.clamp;
+      remainingX *= leftover;
+      remainingY = 0;
+      vel.vy = 0;
+      grounded = grounded || hit.grounded;
+    }
   }
 
-  if (!hit) return false;
-  pos.x = prev.x + dx * hit.t;
-  pos.y = prev.y + dy * hit.t;
-  if (hit.axis === 'x') {
-    pos.x = hit.clamp;
-    vel.vx = 0;
-  } else {
-    pos.y = hit.clamp;
-    vel.vy = 0;
-  }
-  return hit.grounded;
+  pos.x = x;
+  pos.y = y;
+  return grounded;
 }
 function playerOverlapsEntrySquare() {
   const p = state.player;
