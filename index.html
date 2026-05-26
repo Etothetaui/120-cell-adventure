@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>120-cell-adventure</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="loading">Loading 120-cell-adventure…</div>
+  <main id="app">
+    <section id="stage" aria-label="Adventure stage">
+      <canvas id="maze" aria-label="Maze play area"></canvas>
+      <div id="mobileControls" aria-label="Mobile controls">
+        <div id="stickBase" aria-label="Move left or right" role="application">
+          <div id="stickThumb"></div>
+        </div>
+        <div id="mobileActionButtons">
+          <button id="mobileJump" type="button">Jump</button>
+          <button id="mobileDefend" type="button">Defend</button>
+        </div>
+      </div>
+    </section>
+
+    <aside id="hud" aria-label="HUD">
+      <div class="title-block">
+        <h1>120-cell-adventure</h1>
+        <p class="subtitle">A 600-maze platform adventure on the graph of the 120-cell.</p>
+      </div>
+
+      <section id="goldPanel" aria-label="Gold storage">
+        <div class="gold-row"><strong>Gold</strong><span id="goldCounter">0/0</span></div>
+        <div id="goldBar"><div id="goldFill"></div></div>
+      </section>
+
+      <div id="mapShell">
+        <canvas id="map" aria-label="Inset 120-cell map"></canvas>
+        <div class="map-corner-controls" aria-label="Inset map controls">
+          <button type="button" data-map-action="pause">Pause</button>
+        </div>
+      </div>
+
+      <div id="status" aria-live="polite"></div>
+      <div id="message" aria-live="polite"></div>
+
+      <div class="actions">
+        <button id="fullMapButton" type="button">Full map (M)</button>
+        <button id="resetMapView" type="button">Reset map view</button>
+        <button id="visitedMode" type="button">Map: all</button>
+        <button id="cellFocus" type="button">Focus: off</button>
+        <button id="reset" type="button">Reset progress</button>
+        <button id="newMazeSet" type="button">New game: new mazes</button>
+        <div class="seed-controls">
+          <label for="seedInput">Seed</label>
+          <input id="seedInput" inputmode="numeric" autocomplete="off" placeholder="123456789" />
+          <button id="seededNewGame" type="button">New game from seed</button>
+        </div>
+        <div class="save-controls">
+          <button id="exportSave" type="button">Export save</button>
+          <textarea id="saveExport" class="hidden" readonly rows="3" aria-label="Exported save string"></textarea>
+          <button id="copySave" class="hidden" type="button">Copy save</button>
+          <textarea id="saveImport" rows="3" aria-label="Import save string" placeholder="Paste save string"></textarea>
+          <button id="importSave" type="button">Import save</button>
+        </div>
+      </div>
+
+      <p class="help">Keyboard: A/D or left/right arrows move; W, Space, or Z jumps; one airborne double jump is available before landing; X or clicking in the maze defends using stored gold. Mobile: drag the left thumbstick to move, then use Jump and Defend. Map: M toggles full map; V cycles all/discovered/undiscovered; C cycles focus modes. Drag maps to rotate or pan; wheel or pinch to zoom.</p>
+      <div class="meta-line"><span>0.1.0-dev</span></div>
+    </aside>
+  </main>
+
+  <div id="mapOverlay" class="hidden" role="dialog" aria-modal="true" aria-label="Full 120-cell map">
+    <canvas id="fullMap"></canvas>
+    <div class="full-map-controls" aria-label="Full map controls">
+      <button type="button" data-map-action="pause">Pause map rotation</button>
+      <button type="button" data-map-action="reset">Reset map view</button>
+      <button type="button" data-map-action="visited">Map: all</button>
+      <button type="button" data-map-action="cell">Focus: off</button>
+    </div>
+    <button id="closeMap" type="button">Close</button>
+  </div>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>
