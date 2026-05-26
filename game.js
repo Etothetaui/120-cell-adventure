@@ -776,7 +776,16 @@ function update(dt) {
   if (state.transition) {
     if (gameNow() - state.transition.start >= state.transition.duration) completeTransition();
   } else {
-    updatePlayer(dt);
+    // Sub-step player physics so high fall speed or frame hiccups cannot tunnel through one-cell walls.
+    // The live-contact generator creates longer drops than the old perfect maze, which exposed the
+    // previous single-step collision resolver.
+    const maxPlayerStep = 1 / 120;
+    let remaining = dt;
+    while (remaining > 0 && !state.transition) {
+      const step = Math.min(maxPlayerStep, remaining);
+      updatePlayer(step);
+      remaining -= step;
+    }
     if (input.defendQueued) { defend(); input.defendQueued = false; }
     checkCollectibles();
     checkEnemyCollision();
