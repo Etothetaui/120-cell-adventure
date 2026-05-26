@@ -21,7 +21,7 @@ const GOLD_R = PLAYER_R * 0.5;
 const ENEMY_R = PLAYER_R;
 const MARKER_R = 0.34;
 const GRAVITY = 30;
-const JUMP_HEIGHT = 2.22;
+const JUMP_HEIGHT = 2.62;
 const JUMP_V = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
 const MOVE_SPEED = 5.2;
 const AIR_ACCEL = 26;
@@ -149,28 +149,119 @@ function displayDirToCanon(dx, dy, q) {
 
 function generateMazeData(seed) {
   const mazes = [];
-  const dirBits = [WALL.N, WALL.E, WALL.S, WALL.W];
-  const oppositeBit = { [WALL.N]: WALL.S, [WALL.S]: WALL.N, [WALL.E]: WALL.W, [WALL.W]: WALL.E };
-  const deltaForBit = { [WALL.N]: [0, -1], [WALL.E]: [1, 0], [WALL.S]: [0, 1], [WALL.W]: [-1, 0] };
+  const PHI = (1 + Math.sqrt(5)) / 2;
   const fixedDoorCell = { N: { x: 7, y: 0 }, E: { x: 14, y: 7 }, S: { x: 7, y: 14 }, W: { x: 0, y: 7 } };
   const sides = ['N', 'E', 'S', 'W'];
+  const cellCount = SIZE * SIZE;
+  const idx = (x, y) => y * SIZE + x;
+  const inBounds = (x, y) => x >= 0 && x < SIZE && y >= 0 && y < SIZE;
+
   for (const vertex of POLYTOPE_DATA.vertices) {
     const rng = mulberry32((0x120CE11 ^ seed ^ Math.imul(vertex.id, 2654435761)) >>> 0);
-    const cells = Array.from({ length: SIZE * SIZE }, () => WALL.N | WALL.E | WALL.S | WALL.W);
-    const visited = Array.from({ length: SIZE * SIZE }, () => false);
-    const idx = (x, y) => y * SIZE + x;
-    function carve(x, y) {
-      visited[idx(x, y)] = true;
-      for (const bit of shuffle([...dirBits], rng)) {
-        const [dx, dy] = deltaForBit[bit];
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || nx >= SIZE || ny < 0 || ny >= SIZE || visited[idx(nx, ny)]) continue;
-        cells[idx(x, y)] &= ~bit;
-        cells[idx(nx, ny)] &= ~oppositeBit[bit];
-        carve(nx, ny);
-      }
+    const cells = Array.from({ length: cellCount }, () => WALL.N | WALL.E | WALL.S | WALL.W);
+    const visited = Array.from({ length: cellCount }, () => false);
+    const parent = Array.from({ length: cellCount }, () => -1);
+    const visitOrder = Array.from({ length: cellCount }, () => -1);
+    let orderCounter = 0;
+
+    function xy(i) { return { x: i % SIZE, y: Math.floor(i / SIZE) }; }
+    function neighborIndex(i, d) {
+      const p = xy(i);
+      const nx = p.x + d.dx, ny = p.y + d.dy;
+      return inBounds(nx, ny) ? idx(nx, ny) : -1;
     }
-    carve(7, 7);
+    function isConnected(i, d) {
+      const n = neighborIndex(i, d);
+      return n >= 0 && !(cells[i] & d.bit);
+    }
+    function carveEdge(i, d) {
+      const n = neighborIndex(i, d);
+      if (n < 0) return -1;
+      cells[i] &= ~d.bit;
+      cells[n] &= ~DIR_BY_NAME[OPPOSITE[d.name]].bit;
+      return n;
+    }
+    function internalDegree(i) {
+      let degree = 0;
+      for (const d of DIRS) if (isConnected(i, d)) degree++;
+      return degree;
+    }
+    function terminalSpurLength(tip) {
+      let length = 0;
+      let current = tip;
+      while (parent[current] >= 0) {
+        const p = parent[current];
+        length++;
+        if (internalDegree(p) !== 2) break;
+        current = p;
+      }
+      return length;
+    }
+    function pathLengthCells(startCell, goalCell) {
+      if (startCell === goalCell) return 1;
+      const dist = Array.from({ length: cellCount }, () => -1);
+      const q = [startCell];
+      dist[startCell] = 0;
+      for (let head = 0; head < q.length; head++) {
+        const here = q[head];
+        for (const d of DIRS) {
+          if (!isConnected(here, d)) continue;
+          const n = neighborIndex(here, d);
+          if (n < 0 || dist[n] >= 0) continue;
+          dist[n] = dist[here] + 1;
+          if (n === goalCell) return dist[n] + 1;
+          q.push(n);
+        }
+      }
+      return Infinity;
+    }
+
+    const start = idx(7, 7);
+    visited[start] = true;
+    visitOrder[start] = orderCounter++;
+    const stack = [start];
+
+    while (stack.length) {
+      const current = stack[stack.length - 1];
+      const unvisited = [];
+      for (const d of DIRS) {
+        const n = neighborIndex(current, d);
+        if (n >= 0 && !visited[n]) unvisited.push(d);
+      }
+
+      if (unvisited.length) {
+        const d = unvisited[randInt(rng, unvisited.length)];
+        const next = carveEdge(current, d);
+        parent[next] = current;
+        visited[next] = true;
+        visitOrder[next] = orderCounter++;
+        stack.push(next);
+        continue;
+      }
+
+      if (internalDegree(current) === 1) {
+        const spur = terminalSpurLength(current);
+        let best = null;
+        for (const d of DIRS) {
+          const n = neighborIndex(current, d);
+          if (n < 0 || !visited[n]) continue;
+          if (isConnected(current, d)) continue;
+          if (n === parent[current] || parent[n] === current) continue;
+          const cycle = pathLengthCells(current, n);
+          if (cycle < SIZE || cycle < Math.pow(spur, PHI)) continue;
+          const candidate = { dir: d, cycle, order: visitOrder[n] };
+          if (!best || candidate.cycle > best.cycle ||
+              (candidate.cycle === best.cycle && candidate.order < best.order) ||
+              (candidate.cycle === best.cycle && candidate.order === best.order && candidate.dir.index < best.dir.index)) {
+            best = candidate;
+          }
+        }
+        if (best) carveEdge(current, best.dir);
+      }
+
+      stack.pop();
+    }
+
     const rot = (vertex.id + (seed & 3)) % 4;
     const rotated = sides.slice(rot).concat(sides.slice(0, rot));
     const doors = vertex.doors.map((d, i) => {

@@ -4,6 +4,187 @@ const POLYTOPE_DATA = window.POLYTOPE_DATA;
 const PROJECTION_2D_LAYOUT = window.PROJECTION_2D_LAYOUT;
 const TAU = Math.PI * 2;
 
+const LAYOUT_NODE_BY_ID = new Map(PROJECTION_2D_LAYOUT.nodes.map(node => [node.id, node]));
+const LAYOUT_NODE_IDS = PROJECTION_2D_LAYOUT.nodes.map(node => node.id);
+const LAYOUT_ADJ = new Map(LAYOUT_NODE_IDS.map(id => [id, new Set()]));
+for (const edge of PROJECTION_2D_LAYOUT.edges) {
+  LAYOUT_ADJ.get(edge.a).add(edge.b);
+  LAYOUT_ADJ.get(edge.b).add(edge.a);
+}
+const LAYOUT_CENTER_NODE = 0;
+const LAYOUT_DIST = graphDistances(LAYOUT_ADJ, LAYOUT_CENTER_NODE);
+const LAYOUT_DEGREE = new Map(LAYOUT_NODE_IDS.map(id => [id, LAYOUT_ADJ.get(id).size]));
+const LAYOUT_SIGNATURE = new Map(LAYOUT_NODE_IDS.map(id => [id, graphNodeSignature(LAYOUT_ADJ, LAYOUT_DIST, LAYOUT_DEGREE, id)]));
+const TOPOLOGY_2D_CACHE = new Map();
+
+function graphDistances(adj, start) {
+  const queue = [start];
+  const dist = new Map([[start, 0]]);
+  for (let head = 0; head < queue.length; head++) {
+    const id = queue[head];
+    const nextDistance = dist.get(id) + 1;
+    for (const neighbor of adj.get(id) || []) {
+      if (dist.has(neighbor)) continue;
+      dist.set(neighbor, nextDistance);
+      queue.push(neighbor);
+    }
+  }
+  return dist;
+}
+
+function graphNodeSignature(adj, dist, degree, id) {
+  const neighborProfile = [...(adj.get(id) || [])]
+    .map(neighbor => `${dist.get(neighbor)}:${degree.get(neighbor)}`)
+    .sort()
+    .join('|');
+  return `${dist.get(id)}:${degree.get(id)}:${neighborProfile}`;
+}
+
+function localFocusGraph(currentVertex) {
+  const current = POLYTOPE_DATA.vertices[currentVertex];
+  const vertices = new Set();
+  for (const cellId of current.cells) {
+    for (const vertexId of POLYTOPE_DATA.cells[cellId].vertices) vertices.add(vertexId);
+  }
+  const adj = new Map();
+  for (const vertexId of vertices) {
+    adj.set(vertexId, new Set(POLYTOPE_DATA.vertices[vertexId].neighbors.filter(neighbor => vertices.has(neighbor))));
+  }
+  return { vertices: [...vertices], adj };
+}
+
+function compute2DTopologyMapping(currentVertex) {
+  if (TOPOLOGY_2D_CACHE.has(currentVertex)) return TOPOLOGY_2D_CACHE.get(currentVertex);
+
+  const graph = localFocusGraph(currentVertex);
+  const localDist = graphDistances(graph.adj, currentVertex);
+  const localDegree = new Map(graph.vertices.map(id => [id, graph.adj.get(id).size]));
+  const localSignature = new Map(graph.vertices.map(id => [id, graphNodeSignature(graph.adj, localDist, localDegree, id)]));
+
+  let candidates = new Map(LAYOUT_NODE_IDS.map(nodeId => [
+    nodeId,
+    graph.vertices.filter(vertexId => localSignature.get(vertexId) === LAYOUT_SIGNATURE.get(nodeId))
+  ]));
+
+  if ([...candidates.values()].some(list => list.length === 0)) {
+    candidates = new Map(LAYOUT_NODE_IDS.map(nodeId => [
+      nodeId,
+      graph.vertices.filter(vertexId =>
+        localDist.get(vertexId) === LAYOUT_DIST.get(nodeId) &&
+        localDegree.get(vertexId) === LAYOUT_DEGREE.get(nodeId)
+      )
+    ]));
+  }
+
+  candidates.set(LAYOUT_CENTER_NODE, [currentVertex]);
+
+  const nodeToVertex = new Map([[LAYOUT_CENTER_NODE, currentVertex]]);
+  const usedVertices = new Set([currentVertex]);
+  const unassignedNodes = new Set(LAYOUT_NODE_IDS.filter(id => id !== LAYOUT_CENTER_NODE));
+
+  const isCompatible = (nodeId, vertexId) => {
+    if (usedVertices.has(vertexId)) return false;
+    const localNeighbors = graph.adj.get(vertexId);
+    for (const [mappedNodeId, mappedVertexId] of nodeToVertex) {
+      const layoutConnected = LAYOUT_ADJ.get(nodeId).has(mappedNodeId);
+      const localConnected = localNeighbors.has(mappedVertexId);
+      if (layoutConnected !== localConnected) return false;
+    }
+    return true;
+  };
+
+  const forwardCheck = (nodeId, vertexId) => {
+    for (const layoutNeighbor of LAYOUT_ADJ.get(nodeId)) {
+      if (nodeToVertex.has(layoutNeighbor)) continue;
+      let exists = false;
+      for (const candidate of candidates.get(layoutNeighbor) || []) {
+        if (usedVertices.has(candidate) || candidate === vertexId) continue;
+        if (!graph.adj.get(vertexId).has(candidate)) continue;
+        let compatible = true;
+        for (const [mappedNodeId, mappedVertexId] of nodeToVertex) {
+          const layoutConnected = LAYOUT_ADJ.get(layoutNeighbor).has(mappedNodeId);
+          const localConnected = graph.adj.get(candidate).has(mappedVertexId);
+          if (layoutConnected !== localConnected) { compatible = false; break; }
+        }
+        if (compatible) { exists = true; break; }
+      }
+      if (!exists) return false;
+    }
+    return true;
+  };
+
+  const compatibleCandidateCount = (nodeId) => {
+    let count = 0;
+    for (const candidate of candidates.get(nodeId) || []) {
+      if (isCompatible(nodeId, candidate)) count++;
+    }
+    return count;
+  };
+
+  const chooseNextNode = () => {
+    let best = null;
+    let bestAssignedNeighbors = -1;
+    let bestCandidateCount = Infinity;
+    let bestDistance = Infinity;
+    for (const nodeId of unassignedNodes) {
+      const assignedNeighbors = [...LAYOUT_ADJ.get(nodeId)].filter(neighbor => nodeToVertex.has(neighbor)).length;
+      if (assignedNeighbors === 0) continue;
+      const count = compatibleCandidateCount(nodeId);
+      const distance = LAYOUT_DIST.get(nodeId);
+      if (
+        assignedNeighbors > bestAssignedNeighbors ||
+        (assignedNeighbors === bestAssignedNeighbors && count < bestCandidateCount) ||
+        (assignedNeighbors === bestAssignedNeighbors && count === bestCandidateCount && distance < bestDistance) ||
+        (assignedNeighbors === bestAssignedNeighbors && count === bestCandidateCount && distance === bestDistance && nodeId < best)
+      ) {
+        best = nodeId;
+        bestAssignedNeighbors = assignedNeighbors;
+        bestCandidateCount = count;
+        bestDistance = distance;
+      }
+    }
+    if (best != null) return best;
+    return [...unassignedNodes].sort((a, b) => (candidates.get(a)?.length || 0) - (candidates.get(b)?.length || 0))[0];
+  };
+
+  const search = () => {
+    if (unassignedNodes.size === 0) return true;
+    const nodeId = chooseNextNode();
+    if (nodeId == null) return false;
+    const candidateList = [...(candidates.get(nodeId) || [])].sort((a, b) => a - b);
+    unassignedNodes.delete(nodeId);
+    for (const candidate of candidateList) {
+      if (!isCompatible(nodeId, candidate)) continue;
+      if (!forwardCheck(nodeId, candidate)) continue;
+      nodeToVertex.set(nodeId, candidate);
+      usedVertices.add(candidate);
+      if (search()) return true;
+      usedVertices.delete(candidate);
+      nodeToVertex.delete(nodeId);
+    }
+    unassignedNodes.add(nodeId);
+    return false;
+  };
+
+  if (!search()) {
+    throw new Error(`Could not map 2D focus topology for vertex ${currentVertex}`);
+  }
+
+  for (const edge of PROJECTION_2D_LAYOUT.edges) {
+    const a = nodeToVertex.get(edge.a);
+    const b = nodeToVertex.get(edge.b);
+    if (!graph.adj.get(a)?.has(b)) {
+      throw new Error(`Invalid 2D focus topology edge for vertex ${currentVertex}`);
+    }
+  }
+
+  const vertexToNode = new Map([...nodeToVertex].map(([nodeId, vertexId]) => [vertexId, nodeId]));
+  const result = { nodeToVertex, vertexToNode, localAdj: graph.adj };
+  TOPOLOGY_2D_CACHE.set(currentVertex, result);
+  return result;
+}
+
+
 function cssSize(canvas) {
   const rect = canvas.getBoundingClientRect();
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -152,22 +333,8 @@ class MapRenderer {
     return visible;
   }
 
-  localFocusVertices(state) {
-    const current = POLYTOPE_DATA.vertices[state.currentVertex];
-    const set = new Set();
-    for (const cellId of current.cells) for (const v of POLYTOPE_DATA.cells[cellId].vertices) set.add(v);
-    const queue = [state.currentVertex];
-    const visited = new Set(queue);
-    const ordered = [state.currentVertex];
-    for (let head = 0; head < queue.length; head++) {
-      const id = queue[head];
-      for (const n of POLYTOPE_DATA.vertices[id].neighbors) {
-        if (!set.has(n) || visited.has(n)) continue;
-        visited.add(n); queue.push(n); ordered.push(n);
-      }
-    }
-    for (const id of [...set].sort((a,b)=>a-b)) if (!visited.has(id)) ordered.push(id);
-    return ordered.slice(0, PROJECTION_2D_LAYOUT.nodes.length);
+  get2DTopologyMapping(currentVertex) {
+    return compute2DTopologyMapping(currentVertex);
   }
 
   render(canvas, full = false) {
@@ -236,8 +403,8 @@ class MapRenderer {
 
   render2DFocus(ctx, w, h, state, full) {
     const layout = PROJECTION_2D_LAYOUT;
-    const local = this.localFocusVertices(state);
-    const mapNodeToVertex = new Map(layout.nodes.map((n, i) => [n.id, local[i] ?? null]));
+    const topology = this.get2DTopologyMapping(state.currentVertex);
+    const mapNodeToVertex = topology.nodeToVertex;
     const margin = full ? 60 : 18;
     const [vx, vy, vw, vh] = layout.viewBox;
     const nodeRadius = full ? 9 : 5;
@@ -245,7 +412,7 @@ class MapRenderer {
     const ox = w / 2 - (vx + vw / 2) * scale + this.view.panX;
     const oy = h / 2 - (vy + vh / 2) * scale + this.view.panY;
     const pos = (nodeId) => {
-      const n = layout.nodes[nodeId];
+      const n = LAYOUT_NODE_BY_ID.get(nodeId);
       return [ox + n.x * scale, oy + n.y * scale];
     };
 
@@ -254,6 +421,7 @@ class MapRenderer {
     for (const e of layout.edges) {
       const va = mapNodeToVertex.get(e.a);
       const vb = mapNodeToVertex.get(e.b);
+      if (!topology.localAdj.get(va)?.has(vb)) continue;
       if (state.mapFilter === 'visited' && (!state.discovered.has(va) || !state.discovered.has(vb))) continue;
       if (state.mapFilter === 'unvisited' && (state.discovered.has(va) || state.discovered.has(vb))) continue;
       const [x1, y1] = pos(e.a), [x2, y2] = pos(e.b);

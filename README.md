@@ -11,6 +11,7 @@ The same files can also be published with GitHub Pages. For GitHub Pages, keep `
 ## Features
 
 - 600 deterministic vertex mazes connected by the 120-cell graph
+- Spur-conserving live-contact maze generation: randomized DFS with structural live loops and preserved dead ends
 - Platformer movement with gravity, left/right motion, jump, and one airborne double jump
 - Pentagon player body with rotation and side-settling behavior
 - Centered exits on every maze side
@@ -36,7 +37,7 @@ The same files can also be published with GitHub Pages. For GitHub Pages, keep `
   - mouse wheel, trackpad scroll, or pinch to zoom
   - reset map view
 - Map filters for all, discovered-only, and undiscovered-only mazes
-- Current-cell focus modes, including a 2D projection mode
+- Current-cell focus modes, including a 2D projection mode whose displayed nodes and edges are mapped to the actual local 120-cell topology
 - Pause overlay that dims the maze and displays PAUSED
 - Mobile touch controls placed below the maze viewport so they do not cover gameplay
 - Local browser save support
@@ -75,6 +76,21 @@ round(discovered maze count / 50)
 Touching gold removes it from the maze. If storage has room, the gold is added to storage. If storage is full, the gold is still removed but is not added.
 
 Defend spends all stored gold. If no gold is stored, defend does nothing. The defend area is a temporary transparent pentagon centered on the player with radius `stored gold / 3` maze squares. Enemies inside it are removed for 5 seconds, then respawn in the maze farthest from their birth maze. When an enemy respawns, 3 gold are added randomly to the respawn maze or one of its bordering mazes.
+
+
+## Maze generation
+
+Each 15×15 room maze is generated with a **spur-conserving live-contact backtracker**. It starts from the center cell like a randomized depth-first search / recursive backtracker, but when the active DFS tip gets stuck at a true dead end, the generator may open one extra contact wall to create a loop.
+
+A contact is accepted only when the created cycle is large enough relative to the terminal spur being sacrificed:
+
+```text
+cycle length >= grid size
+cycle length >= spur length^φ
+φ = (1 + sqrt(5)) / 2
+```
+
+This keeps the long organic corridors and some meaningful dead ends from recursive backtracking, while adding structural loops during generation instead of using a post-generation braid pass or fixed loop probability.
 
 ## Saves and seeds
 
