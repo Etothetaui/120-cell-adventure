@@ -2,13 +2,11 @@
 
 **120-cell-adventure** is a browser-based platform adventure built on the graph structure of the 120-cell. The game contains 600 interconnected vertex mazes, with each maze connected to neighboring mazes through exits that follow the 4-regular graph of the 120-cell.
 
-Current version: **0.1.0-dev**
-
 ## Play
 
-Open `index.html` in a modern browser, or publish the repository with GitHub Pages using `index.html` at the root of the publishing source.
+Extract the project folder, then open `index.html` in a modern browser. No build step, local server, or server-side code is required.
 
-The project is written as a small static web app. No server-side code is required.
+The same files can also be published with GitHub Pages. For GitHub Pages, keep `index.html` at the root of the selected publishing source along with the other project files.
 
 ## Features
 
@@ -22,17 +20,23 @@ The project is written as a small static web app. No server-side code is require
 - Quick animated room transitions with input locked during the transition
 - One circular discovery marker in every maze
 - Marker-based discovery and win condition: discover all 600 markers to win
-- One enemy spawned for every maze, with global one-square-per-second random-walk movement
+- One equilateral-triangle enemy spawned for every maze, with global one-square-per-second random-walk movement
 - Enemy travel through maze exits
 - Death and respawn at the last touched marker, or the original start position if no marker has been touched
 - 7,200 gold collectibles distributed randomly throughout the 600 mazes
 - Gold storage capacity based on discovered marker count
 - Defend action powered by stored gold
 - Inset and full-screen 120-cell graph visualizers
+- Interactive map controls:
+  - pause/resume rotation
+  - drag to rotate
+  - shift-drag, right-click drag, or two-finger drag to pan
+  - mouse wheel, trackpad scroll, or pinch to zoom
+  - reset map view
 - Map filters for all, discovered-only, and undiscovered-only mazes
 - Current-cell focus modes, including a 2D projection mode
 - Local browser save support
-- Save export and import
+- Save export and import with checksum validation
 - Seeded new games
 
 ## Controls
@@ -43,6 +47,7 @@ The project is written as a small static web app. No server-side code is require
 | Jump | `W`, `Space`, `Z`, or mobile Jump button |
 | Double jump | Press jump once while airborne |
 | Defend | `X`, click inside the maze area, or mobile Defend button |
+| Pause game | `Esc` or Pause game button |
 | Full map | `M` or Full map button |
 | Map filter | `V` or map filter button: all / discovered / undiscovered |
 | Current cell focus | `C` or focus button: off / 4D cell / 2D cell |
@@ -50,7 +55,7 @@ The project is written as a small static web app. No server-side code is require
 | Rotate map | Left-click drag or one-finger drag |
 | Pan map | Shift-drag, right-click drag, or two-finger drag |
 | Zoom map | Mouse wheel, trackpad scroll, or pinch |
-| Close full map | `Esc` or Close button |
+| Close full map | Close button |
 
 ## Discovery, gold, and defend
 
@@ -74,7 +79,13 @@ A new save system is used for this game and is not intended to be compatible wit
 
 The maze set, markers, starting gold, and starting enemies are generated from a numeric seed. Starting a new game with the same seed recreates the same initial world.
 
-## Project structure
+## Version
+
+Current version: **0.1.0-dev**
+
+## Development
+
+This project is distributed as a static multi-file web app. The files can be opened locally in a browser or served as a static site.
 
 ```text
 index.html        App shell and HUD markup
@@ -85,7 +96,7 @@ map-renderer.js   120-cell map and focus visualizers
 save.js           Local save, export, import, and save validation
 ```
 
-The game can be developed as these static files and can also be bundled into one self-contained HTML file later if desired.
+To modify it, edit the files directly and open `index.html` in a browser to test. The game can also be bundled into one self-contained HTML file later if desired.
 
 ## License
 

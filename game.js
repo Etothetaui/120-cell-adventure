@@ -1,6 +1,8 @@
-import { POLYTOPE_DATA } from './data.js';
-import { MapRenderer } from './map-renderer.js';
-import { encodeSave, decodeSave, saveLocal, loadLocal, clearLocal, GAME_VERSION } from './save.js';
+(() => {
+'use strict';
+const POLYTOPE_DATA = window.POLYTOPE_DATA;
+const MapRenderer = window.MapRenderer;
+const { encodeSave, decodeSave, saveLocal, loadLocal, clearLocal, GAME_VERSION } = window.AdventureSave;
 
 const SIZE = 15;
 const WALL = { N: 1, E: 2, S: 4, W: 8 };
@@ -34,7 +36,7 @@ const TAU = Math.PI * 2;
 const $ = (id) => document.getElementById(id);
 const els = {
   loading: $('loading'), maze: $('maze'), map: $('map'), fullMap: $('fullMap'),
-  mapOverlay: $('mapOverlay'), closeMap: $('closeMap'), fullMapButton: $('fullMapButton'),
+  mapOverlay: $('mapOverlay'), closeMap: $('closeMap'), fullMapButton: $('fullMapButton'), pauseGame: $('pauseGame'),
   resetMapView: $('resetMapView'), visitedMode: $('visitedMode'), cellFocus: $('cellFocus'),
   reset: $('reset'), newMazeSet: $('newMazeSet'), seedInput: $('seedInput'), seededNewGame: $('seededNewGame'),
   exportSave: $('exportSave'), saveExport: $('saveExport'), copySave: $('copySave'),
@@ -233,6 +235,7 @@ function newState(seed) {
     enemies: generateEnemies(seed), enemyTimer: 0,
     defense: null,
     transition: null,
+    paused: false, pauseStarted: 0, pauseStartedWall: 0,
     startedAt: Date.now(), transitions: 0, deaths: 0,
     mapFilter: 'all', focusMode: 0,
     rngCounter: 0,
@@ -253,7 +256,7 @@ function returnDoorInMaze(maze, fromVertex) { return maze.doors.find(d => d.dest
 function setMessage(text, seconds = 2.2) { els.message.textContent = text || ''; messageTimer = text ? seconds : 0; }
 
 function stateForSave() {
-  const now = performance.now();
+  const now = gameNow();
   return {
     seed: state.seed,
     currentVertex: state.currentVertex,
@@ -267,7 +270,7 @@ function stateForSave() {
     goldStored: state.goldStored,
     enemies: state.enemies.map(e => ({ ...e, removedRemaining: Math.max(0, e.removedUntil - now), removedUntil: 0 })),
     enemyTimer: state.enemyTimer,
-    startedAt: state.startedAt,
+    startedAt: state.startedAt + (state.paused ? Date.now() - state.pauseStartedWall : 0),
     transitions: state.transitions,
     deaths: state.deaths,
     rngCounter: state.rngCounter,
@@ -301,11 +304,14 @@ function applySave(payload) {
   next.deaths = Number(payload.deaths) || 0;
   next.rngCounter = Number(payload.rngCounter) || 0;
   next.won = !!payload.won;
+  next.paused = false; next.pauseStarted = 0; next.pauseStartedWall = 0;
   state = next;
   syncSeedInput(); updateHUD(); setMessage('Save imported.');
 }
 function saveNow() { if (state) saveLocal(stateForSave()); }
 function syncSeedInput() { els.seedInput.value = String(state.seed >>> 0); }
+function gameNow() { return state?.paused ? state.pauseStarted : performance.now(); }
+function elapsedMs() { return Date.now() - state.startedAt - (state.paused ? Date.now() - state.pauseStartedWall : 0); }
 
 function canvasMetrics(canvas) {
   const rect = canvas.getBoundingClientRect();
@@ -334,19 +340,39 @@ function wallSegmentsForMaze(maze, q, entryClosed = false) {
   if (entryClosed) segs.push({ x1: 7, y1: SIZE, x2: 8, y2: SIZE, side: 'S', entryGate: true });
   return segs;
 }
-function resolveCircle(pos, vel, segments, radius) {
+function pentagonSupportRadius(angle, nx, ny) {
+  // Distance from the pentagon center to its boundary in the direction facing the wall.
+  // This makes collision depend on the pentagon orientation instead of treating it as a circle.
+  let support = 0;
+  for (let i = 0; i < 5; i++) {
+    const a = angle - Math.PI / 2 + i * TAU / 5;
+    const vx = Math.cos(a) * PLAYER_R;
+    const vy = Math.sin(a) * PLAYER_R;
+    support = Math.max(support, -(vx * nx + vy * ny));
+  }
+  return support;
+}
+function resolvePentagon(pos, vel, segments, angle) {
   let grounded = false;
   for (let iter = 0; iter < 4; iter++) {
     for (const s of segments) {
       const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
       const len2 = dx * dx + dy * dy;
+      if (!len2) continue;
       const t = Math.max(0, Math.min(1, ((pos.x - s.x1) * dx + (pos.y - s.y1) * dy) / len2));
       const cx = s.x1 + dx * t, cy = s.y1 + dy * t;
       let nx = pos.x - cx, ny = pos.y - cy;
       let dist = Math.hypot(nx, ny);
-      if (dist > 0 && dist < radius) {
+      if (dist < 0.00001) {
+        if (Math.abs(dx) > Math.abs(dy)) { nx = 0; ny = pos.y < s.y1 ? -1 : 1; }
+        else { nx = pos.x < s.x1 ? -1 : 1; ny = 0; }
+        dist = 0;
+      } else {
         nx /= dist; ny /= dist;
-        const push = radius - dist + 0.0001;
+      }
+      const support = pentagonSupportRadius(angle, nx, ny);
+      if (dist < support) {
+        const push = support - dist + 0.0001;
         pos.x += nx * push; pos.y += ny * push;
         const dot = vel.vx * nx + vel.vy * ny;
         if (dot < 0) { vel.vx -= dot * nx; vel.vy -= dot * ny; }
@@ -377,12 +403,11 @@ function jump() {
 function updatePlayer(dt) {
   const p = state.player;
   if (input.jumpQueued) { jump(); input.jumpQueued = false; }
-  const left = input.left || input.joystickX < -0.25;
-  const right = input.right || input.joystickX > 0.25;
-  const dir = (right ? 1 : 0) - (left ? 1 : 0);
-  const joyMag = Math.min(1, Math.abs(input.joystickX));
-  const speedMul = (input.left || input.right) ? 1 : joyMag;
-  const targetVx = dir * MOVE_SPEED * speedMul;
+  const keyDir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  const joyDir = input.joystickX > 0.25 ? 1 : input.joystickX < -0.25 ? -1 : 0;
+  const dir = keyDir || joyDir;
+  const magnitude = keyDir ? 1 : Math.min(1, Math.abs(input.joystickX));
+  const targetVx = dir * MOVE_SPEED * magnitude;
   const accel = p.grounded ? GROUND_ACCEL : AIR_ACCEL;
   const dv = targetVx - p.vx;
   const maxDv = accel * dt;
@@ -391,7 +416,7 @@ function updatePlayer(dt) {
 
   const pos = { x: p.x + p.vx * dt, y: p.y + p.vy * dt };
   const vel = { vx: p.vx, vy: p.vy };
-  const grounded = resolveCircle(pos, vel, wallSegmentsForMaze(currentMaze(), state.orientation, state.entryClosed), PLAYER_R);
+  const grounded = resolvePentagon(pos, vel, wallSegmentsForMaze(currentMaze(), state.orientation, state.entryClosed), p.angle);
   p.x = pos.x; p.y = pos.y; p.vx = vel.vx; p.vy = vel.vy;
   p.grounded = grounded;
   if (grounded) {
@@ -428,7 +453,7 @@ function startTransition(door, side) {
   const borderOrientation = orientationForDoorAsSide(returnDoor.side, OPPOSITE[side]);
   const dx = side === 'E' ? 1 : side === 'W' ? -1 : 0;
   const dy = side === 'S' ? 1 : side === 'N' ? -1 : 0;
-  state.transition = { fromVertex, fromOrientation: state.orientation, toVertex, toOrientation, borderOrientation, side, dx, dy, start: performance.now(), duration: TRANSITION_MS };
+  state.transition = { fromVertex, fromOrientation: state.orientation, toVertex, toOrientation, borderOrientation, side, dx, dy, start: gameNow(), duration: TRANSITION_MS };
   state.transitions++;
 }
 function completeTransition() {
@@ -494,13 +519,13 @@ function enemyValidMoves(enemy) {
     if (walls & d.bit) continue;
     const nx = enemy.x + d.dx, ny = enemy.y + d.dy;
     if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) {
-      moves.push({ dir: d.name, vertex: enemy.currentVertex, x: nx, y: ny });
+      moves.push({ dir: d.name, vertex: enemy.currentVertex, x: nx, y: ny, prevDirAfter: d.name });
     } else {
       const door = maze.doors.find(dd => dd.x === enemy.x && dd.y === enemy.y && dd.side === d.name);
       if (door) {
         const destMaze = state.mazes[door.destination_vertex_id];
         const back = returnDoorInMaze(destMaze, enemy.currentVertex);
-        moves.push({ dir: d.name, vertex: door.destination_vertex_id, x: back.x, y: back.y });
+        moves.push({ dir: d.name, vertex: door.destination_vertex_id, x: back.x, y: back.y, prevDirAfter: OPPOSITE[back.side] });
       }
     }
   }
@@ -512,7 +537,7 @@ function enemyValidMoves(enemy) {
   return moves;
 }
 function moveEnemiesStep() {
-  const now = performance.now();
+  const now = gameNow();
   const rng = makeRuntimeRng(0xE11);
   for (const e of state.enemies) {
     if (e.removedUntil) {
@@ -527,7 +552,7 @@ function moveEnemiesStep() {
       if (nonReverse.length) moves = nonReverse;
     }
     const m = moves[randInt(rng, moves.length)];
-    e.currentVertex = m.vertex; e.x = m.x; e.y = m.y; e.prevDir = m.dir;
+    e.currentVertex = m.vertex; e.x = m.x; e.y = m.y; e.prevDir = m.prevDirAfter || m.dir;
     e.angle += ENEMY_ROTATIONS[randInt(rng, ENEMY_ROTATIONS.length)];
   }
 }
@@ -553,7 +578,7 @@ function enemyDisplayPosition(e, currentVertex = state.currentVertex, q = state.
   return null;
 }
 function checkEnemyCollision() {
-  if (state.transition || performance.now() < state.player.invulnerableUntil) return;
+  if (state.transition || gameNow() < state.player.invulnerableUntil) return;
   const p = state.player;
   for (const e of state.enemies) {
     if (e.removedUntil || e.currentVertex !== state.currentVertex) continue;
@@ -565,7 +590,7 @@ function checkEnemyCollision() {
   }
 }
 function killPlayer() {
-  if (performance.now() < state.player.invulnerableUntil) return;
+  if (gameNow() < state.player.invulnerableUntil) return;
   const deathVertex = state.currentVertex;
   scatterStoredGold(deathVertex);
   state.deaths++;
@@ -581,7 +606,7 @@ function killPlayer() {
   }
   state.entryClosed = false;
   state.transition = null;
-  state.player.invulnerableUntil = performance.now() + INVULNERABLE_MS;
+  state.player.invulnerableUntil = gameNow() + INVULNERABLE_MS;
   setMessage('Respawned.', 2);
   saveNow();
 }
@@ -590,14 +615,14 @@ function defend() {
   if (state.transition || state.goldStored <= 0) return;
   const g = state.goldStored;
   state.goldStored = 0;
-  const defense = { x: state.player.x, y: state.player.y, angle: state.player.angle + 36 * Math.PI / 180, radius: g / 3, until: performance.now() + DEFENSE_MS };
+  const defense = { x: state.player.x, y: state.player.y, angle: state.player.angle + 36 * Math.PI / 180, radius: g / 3, until: gameNow() + DEFENSE_MS };
   state.defense = defense;
   const vertices = regularPolygon(defense.x, defense.y, defense.radius, 5, defense.angle);
   for (const e of state.enemies) {
     if (e.removedUntil) continue;
     const p = enemyWorldPositionForDefense(e);
     if (!p) continue;
-    if (pointInPolygon(p.x, p.y, vertices)) e.removedUntil = performance.now() + 5000;
+    if (pointInPolygon(p.x, p.y, vertices)) e.removedUntil = gameNow() + 5000;
   }
 }
 function enemyWorldPositionForDefense(e) {
@@ -637,14 +662,14 @@ function update(dt) {
   state.enemyTimer += dt;
   while (state.enemyTimer >= 1) { state.enemyTimer -= 1; moveEnemiesStep(); }
   if (state.transition) {
-    if (performance.now() - state.transition.start >= state.transition.duration) completeTransition();
+    if (gameNow() - state.transition.start >= state.transition.duration) completeTransition();
   } else {
     updatePlayer(dt);
     if (input.defendQueued) { defend(); input.defendQueued = false; }
     checkCollectibles();
     checkEnemyCollision();
   }
-  if (state.defense && performance.now() > state.defense.until) state.defense = null;
+  if (state.defense && gameNow() > state.defense.until) state.defense = null;
   saveTimer += dt;
   if (saveTimer > 2) { saveTimer = 0; saveNow(); }
 }
@@ -720,8 +745,8 @@ function drawEnemy(ctx, x, y, cellPx, e) {
   ctx.fillStyle = inverseColorForVertex(e.birthVertex, 0.98);
   ctx.shadowColor = inverseColorForVertex(e.birthVertex, 0.85); ctx.shadowBlur = 13;
   ctx.beginPath();
-  for (let i = 0; i < 5; i++) {
-    const a = -Math.PI / 2 + i * TAU / 5;
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + i * TAU / 3;
     const px = Math.cos(a) * r, py = Math.sin(a) * r;
     if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
   }
@@ -780,13 +805,13 @@ function drawScene() {
   gradient.addColorStop(1, '#070b14');
   ctx.fillStyle = gradient; ctx.fillRect(0, 0, w, h);
   ctx.save();
-  ctx.beginPath(); ctx.arc(cx, cy, boardPx * 0.78, 0, TAU); ctx.clip();
+  ctx.beginPath(); ctx.arc(cx, cy, boardPx * Math.SQRT1_2, 0, TAU); ctx.clip();
 
   let tx = 0, ty = 0;
   let transitionEase = 0;
   if (state.transition) {
     const tr = state.transition;
-    const t = Math.min(1, (performance.now() - tr.start) / tr.duration);
+    const t = Math.min(1, (gameNow() - tr.start) / tr.duration);
     transitionEase = 1 - Math.pow(1 - t, 3);
     tx = -tr.dx * boardPx * transitionEase; ty = -tr.dy * boardPx * transitionEase;
   }
@@ -808,7 +833,8 @@ function drawScene() {
   }
   drawMazeBoard(ctx, currentMaze(), state.orientation, cellPx, 0, 0, { current: true, items: true });
   drawDefense(ctx, cellPx);
-  const blink = performance.now() < state.player.invulnerableUntil && Math.floor(performance.now() / 500) % 2 === 0;
+  const now = gameNow();
+  const blink = now < state.player.invulnerableUntil && Math.floor(now / 500) % 2 === 0;
   if (!blink) drawPlayer(ctx, cellPx);
   ctx.restore();
 
@@ -838,7 +864,7 @@ function updateHUD() {
     Gold on board: ${activeGold}<br>
     Transitions: ${state.transitions}<br>
     Deaths: ${state.deaths}<br>
-    Time: ${formatElapsed(Date.now() - state.startedAt)}<br>
+    Time: ${formatElapsed(elapsedMs())}${state.paused ? ' · paused' : ''}<br>
     Map: ${state.mapFilter} · ${focusLabel()}${mapRenderer.view.autoRotate ? '' : ' · paused'}<br>
     Seed: ${state.seed}
   `;
@@ -850,6 +876,7 @@ function updateMapControlButtons() {
   const focusText = state.focusMode === 0 ? 'Focus: off' : state.focusMode === 1 ? 'Focus: 4D cell' : 'Focus: 2D cell';
   els.visitedMode.textContent = filterText;
   els.cellFocus.textContent = focusText;
+  if (els.pauseGame) els.pauseGame.textContent = state?.paused ? 'Resume game (Esc)' : 'Pause game (Esc)';
   document.querySelectorAll('[data-map-action="visited"]').forEach(b => b.textContent = filterText);
   document.querySelectorAll('[data-map-action="cell"]').forEach(b => b.textContent = focusText);
   document.querySelectorAll('[data-map-action="pause"]').forEach(b => b.textContent = mapRenderer.view.autoRotate ? 'Pause map rotation' : 'Resume map rotation');
@@ -860,6 +887,35 @@ function cycleMapFilter() {
 }
 function cycleFocus() {
   state.focusMode = (state.focusMode + 1) % 3;
+  updateMapControlButtons();
+}
+
+
+function togglePause() {
+  if (!state) return;
+  const now = performance.now();
+  if (!state.paused) {
+    state.paused = true;
+    state.pauseStarted = now;
+    state.pauseStartedWall = Date.now();
+    input.left = false; input.right = false; input.joystickX = 0; input.jumpQueued = false; input.defendQueued = false;
+    if (els.stickThumb) els.stickThumb.style.transform = 'translateX(0px)';
+    setMessage('Paused.');
+  } else {
+    const delta = now - state.pauseStarted;
+    state.startedAt += Date.now() - state.pauseStartedWall;
+    if (state.transition) state.transition.start += delta;
+    if (state.player.invulnerableUntil > state.pauseStarted) state.player.invulnerableUntil += delta;
+    if (state.defense && state.defense.until > state.pauseStarted) state.defense.until += delta;
+    for (const e of state.enemies) if (e.removedUntil > state.pauseStarted) e.removedUntil += delta;
+    state.paused = false;
+    state.pauseStarted = 0;
+    state.pauseStartedWall = 0;
+    input.left = false; input.right = false; input.joystickX = 0; input.jumpQueued = false; input.defendQueued = false;
+    if (els.stickThumb) els.stickThumb.style.transform = 'translateX(0px)';
+    lastFrame = now;
+    setMessage('Resumed.');
+  }
   updateMapControlButtons();
 }
 
@@ -874,7 +930,7 @@ function setupInput() {
     if (k === 'm' && !e.repeat) toggleFullMap();
     if (k === 'v' && !e.repeat) cycleMapFilter();
     if (k === 'c' && !e.repeat) cycleFocus();
-    if (k === 'escape') closeFullMap();
+    if (k === 'escape' && !e.repeat) togglePause();
   });
   window.addEventListener('keyup', (e) => {
     const k = e.key.toLowerCase();
@@ -909,6 +965,7 @@ function toggleFullMap() { els.mapOverlay.classList.toggle('hidden'); }
 function closeFullMap() { els.mapOverlay.classList.add('hidden'); }
 function bindUI() {
   els.fullMapButton.addEventListener('click', toggleFullMap);
+  els.pauseGame.addEventListener('click', togglePause);
   els.closeMap.addEventListener('click', closeFullMap);
   els.resetMapView.addEventListener('click', () => mapRenderer.resetView());
   els.visitedMode.addEventListener('click', cycleMapFilter);
@@ -946,7 +1003,7 @@ function bindUI() {
 function mainLoop(now) {
   const dt = Math.min(0.033, (now - lastFrame) / 1000 || 0);
   lastFrame = now;
-  update(dt);
+  if (state.paused) { lastFrame = now; } else { update(dt); }
   drawScene(); drawMaps(); updateHUD();
   requestAnimationFrame(mainLoop);
 }
@@ -966,3 +1023,5 @@ function boot() {
 }
 
 boot();
+
+})();

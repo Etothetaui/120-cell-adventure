@@ -1,5 +1,7 @@
-import { POLYTOPE_DATA, PROJECTION_2D_LAYOUT } from './data.js';
-
+(() => {
+'use strict';
+const POLYTOPE_DATA = window.POLYTOPE_DATA;
+const PROJECTION_2D_LAYOUT = window.PROJECTION_2D_LAYOUT;
 const TAU = Math.PI * 2;
 
 function cssSize(canvas) {
@@ -23,6 +25,41 @@ function vertexLabel(id) {
   return String(id).padStart(3, '0');
 }
 
+
+function drawLineAvoidingNodeCircles(ctx, x1, y1, x2, y2, edge, nodes, pos, radius) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (!len) return;
+  const gaps = [];
+  for (const n of nodes) {
+    const [nx, ny] = pos(n.id);
+    const t = ((nx - x1) * dx + (ny - y1) * dy) / (len * len);
+    const clamped = Math.max(0, Math.min(1, t));
+    const px = x1 + dx * clamped;
+    const py = y1 + dy * clamped;
+    const dist = Math.hypot(nx - px, ny - py);
+    if (dist >= radius) continue;
+    const half = Math.sqrt(Math.max(0, radius * radius - dist * dist)) / len;
+    gaps.push([Math.max(0, clamped - half), Math.min(1, clamped + half)]);
+  }
+  gaps.sort((a, b) => a[0] - b[0]);
+  let cursor = 0;
+  ctx.beginPath();
+  for (const [a, b] of gaps) {
+    if (a > cursor) {
+      ctx.moveTo(x1 + dx * cursor, y1 + dy * cursor);
+      ctx.lineTo(x1 + dx * a, y1 + dy * a);
+    }
+    cursor = Math.max(cursor, b);
+  }
+  if (cursor < 1) {
+    ctx.moveTo(x1 + dx * cursor, y1 + dy * cursor);
+    ctx.lineTo(x2, y2);
+  }
+  ctx.stroke();
+}
+
 function rotate4(coords, t) {
   let [x, y, z, w] = coords;
   const a = t * 0.27;
@@ -35,7 +72,7 @@ function rotate4(coords, t) {
   return { x: x * perspective, y: y * perspective, z };
 }
 
-export class MapRenderer {
+class MapRenderer {
   constructor({ stateProvider, onModeButtonUpdate }) {
     this.getState = stateProvider;
     this.onModeButtonUpdate = onModeButtonUpdate;
@@ -221,7 +258,7 @@ export class MapRenderer {
       if (state.mapFilter === 'unvisited' && (state.discovered.has(va) || state.discovered.has(vb))) continue;
       const [x1, y1] = pos(e.a), [x2, y2] = pos(e.b);
       ctx.strokeStyle = 'rgba(210,225,255,0.34)';
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      drawLineAvoidingNodeCircles(ctx, x1, y1, x2, y2, e, layout.nodes, pos, nodeRadius + (full ? 2.5 : 1.8));
     }
 
     for (const n of layout.nodes) {
@@ -232,7 +269,7 @@ export class MapRenderer {
       const [x, y] = pos(n.id);
       const current = vertexId === state.currentVertex;
       const discovered = state.discovered.has(vertexId);
-      ctx.fillStyle = current ? '#ffffff' : discovered ? colorForCell(POLYTOPE_DATA.vertices[vertexId].cells[0], 0.96) : 'rgba(130,145,175,0.48)';
+      ctx.fillStyle = current ? '#ffffff' : discovered ? colorForCell(POLYTOPE_DATA.vertices[vertexId].cells[0], 0.96) : 'rgba(130,145,175,0.92)';
       ctx.shadowColor = current ? 'rgba(255,255,255,0.9)' : 'transparent';
       ctx.shadowBlur = current ? 12 : 0;
       ctx.beginPath(); ctx.arc(x, y, nodeRadius, 0, TAU); ctx.fill();
@@ -248,3 +285,6 @@ export class MapRenderer {
     }
   }
 }
+
+window.MapRenderer = MapRenderer;
+})();
