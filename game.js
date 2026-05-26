@@ -15,6 +15,7 @@ const OPPOSITE = { N: 'S', S: 'N', E: 'W', W: 'E' };
 const SIDE_TO_INDEX = { N: 0, E: 1, S: 2, W: 3 };
 const INDEX_TO_SIDE = ['N', 'E', 'S', 'W'];
 const PLAYER_R = 0.27;
+const PLAYER_MAX_SUBSTEP = PLAYER_R / 3;
 const GOLD_R = PLAYER_R * 0.5;
 const ENEMY_R = PLAYER_R;
 const MARKER_R = 0.34;
@@ -481,6 +482,71 @@ function resolveCircle(pos, vel, segments, radius) {
   }
   return grounded;
 }
+function sweepCircleAgainstWalls(prev, pos, vel, segments, radius) {
+  const dx = pos.x - prev.x;
+  const dy = pos.y - prev.y;
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return false;
+
+  let hit = null;
+  const recordHit = (t, axis, clamp, grounded) => {
+    if (t < -1e-8 || t > 1 + 1e-8) return;
+    if (!hit || t < hit.t) hit = { t: Math.max(0, Math.min(1, t)), axis, clamp, grounded };
+  };
+
+  for (const s of segments) {
+    const vertical = Math.abs(s.x1 - s.x2) < 1e-8;
+    const horizontal = Math.abs(s.y1 - s.y2) < 1e-8;
+    if (vertical && Math.abs(dx) > 1e-9) {
+      const wallX = s.x1;
+      const yMin = Math.min(s.y1, s.y2), yMax = Math.max(s.y1, s.y2);
+      if (dx > 0) {
+        const clampX = wallX - radius;
+        if (prev.x <= clampX && pos.x > clampX) {
+          const t = (clampX - prev.x) / dx;
+          const yAtHit = prev.y + dy * t;
+          if (yAtHit >= yMin - 1e-6 && yAtHit <= yMax + 1e-6) recordHit(t, 'x', clampX, false);
+        }
+      } else {
+        const clampX = wallX + radius;
+        if (prev.x >= clampX && pos.x < clampX) {
+          const t = (clampX - prev.x) / dx;
+          const yAtHit = prev.y + dy * t;
+          if (yAtHit >= yMin - 1e-6 && yAtHit <= yMax + 1e-6) recordHit(t, 'x', clampX, false);
+        }
+      }
+    } else if (horizontal && Math.abs(dy) > 1e-9) {
+      const wallY = s.y1;
+      const xMin = Math.min(s.x1, s.x2), xMax = Math.max(s.x1, s.x2);
+      if (dy > 0) {
+        const clampY = wallY - radius;
+        if (prev.y <= clampY && pos.y > clampY) {
+          const t = (clampY - prev.y) / dy;
+          const xAtHit = prev.x + dx * t;
+          if (xAtHit >= xMin - 1e-6 && xAtHit <= xMax + 1e-6) recordHit(t, 'y', clampY, true);
+        }
+      } else {
+        const clampY = wallY + radius;
+        if (prev.y >= clampY && pos.y < clampY) {
+          const t = (clampY - prev.y) / dy;
+          const xAtHit = prev.x + dx * t;
+          if (xAtHit >= xMin - 1e-6 && xAtHit <= xMax + 1e-6) recordHit(t, 'y', clampY, false);
+        }
+      }
+    }
+  }
+
+  if (!hit) return false;
+  pos.x = prev.x + dx * hit.t;
+  pos.y = prev.y + dy * hit.t;
+  if (hit.axis === 'x') {
+    pos.x = hit.clamp;
+    vel.vx = 0;
+  } else {
+    pos.y = hit.clamp;
+    vel.vy = 0;
+  }
+  return hit.grounded;
+}
 function playerOverlapsEntrySquare() {
   const p = state.player;
   const left = 7, right = 8, top = SIZE - 1, bottom = SIZE;
@@ -514,24 +580,42 @@ function updatePlayer(dt) {
     if (!input.jumpHeld && p.vy < 0) p.vy *= JUMP_RELEASE_MULT;
     input.jumpReleased = false;
   }
-  const left = input.left || input.joystickX < -0.25;
-  const right = input.right || input.joystickX > 0.25;
-  const dir = (right ? 1 : 0) - (left ? 1 : 0);
-  const joyMag = Math.min(1, Math.abs(input.joystickX));
-  const speedMul = (input.left || input.right) ? 1 : joyMag;
-  const targetVx = dir * MOVE_SPEED * speedMul;
-  const accel = p.grounded ? GROUND_ACCEL : AIR_ACCEL;
-  const dv = targetVx - p.vx;
-  const maxDv = accel * dt;
-  p.vx += Math.max(-maxDv, Math.min(maxDv, dv));
-  p.vy = Math.min(18, p.vy + GRAVITY * dt);
 
-  const pos = { x: p.x + p.vx * dt, y: p.y + p.vy * dt };
-  const vel = { vx: p.vx, vy: p.vy };
-  const grounded = resolveCircle(pos, vel, wallSegmentsForMaze(currentMaze(), state.orientation, state.entryClosed), PLAYER_R);
-  p.x = pos.x; p.y = pos.y; p.vx = vel.vx; p.vy = vel.vy;
-  p.grounded = grounded;
-  if (grounded) {
+  const estimatedVx = Math.max(Math.abs(p.vx), MOVE_SPEED);
+  const estimatedVy = Math.max(Math.abs(p.vy), Math.abs(Math.min(18, p.vy + GRAVITY * dt)));
+  const estimatedDistance = Math.hypot(estimatedVx, estimatedVy) * dt;
+  const steps = Math.max(1, Math.ceil(estimatedDistance / PLAYER_MAX_SUBSTEP));
+  const subDt = dt / steps;
+
+  let grounded = false;
+  for (let i = 0; i < steps; i++) {
+    const left = input.left || input.joystickX < -0.25;
+    const right = input.right || input.joystickX > 0.25;
+    const dir = (right ? 1 : 0) - (left ? 1 : 0);
+    const joyMag = Math.min(1, Math.abs(input.joystickX));
+    const speedMul = (input.left || input.right) ? 1 : joyMag;
+    const targetVx = dir * MOVE_SPEED * speedMul;
+    const accel = p.grounded ? GROUND_ACCEL : AIR_ACCEL;
+    const dv = targetVx - p.vx;
+    const maxDv = accel * subDt;
+    p.vx += Math.max(-maxDv, Math.min(maxDv, dv));
+    p.vy = Math.min(18, p.vy + GRAVITY * subDt);
+
+    const prev = { x: p.x, y: p.y };
+    const pos = { x: p.x + p.vx * subDt, y: p.y + p.vy * subDt };
+    const vel = { vx: p.vx, vy: p.vy };
+    const segments = wallSegmentsForMaze(currentMaze(), state.orientation, state.entryClosed);
+    const sweptGrounded = sweepCircleAgainstWalls(prev, pos, vel, segments, PLAYER_R);
+    const resolvedGrounded = resolveCircle(pos, vel, segments, PLAYER_R);
+    p.x = pos.x; p.y = pos.y; p.vx = vel.vx; p.vy = vel.vy;
+    grounded = sweptGrounded || resolvedGrounded;
+    p.grounded = grounded;
+    if (state.entryClosed && !playerOverlapsEntrySquare()) state.entryClosed = false;
+    checkExitTransition();
+    if (state.transition) break;
+  }
+
+  if (p.grounded) {
     p.usedDoubleJump = false;
     p.angularVelocity *= 0.65;
     const stable = TAU / 5;
@@ -540,9 +624,8 @@ function updatePlayer(dt) {
     p.angle += p.angularVelocity * dt;
     p.angularVelocity += p.vx * dt * 0.85;
   }
-  if (state.entryClosed && !playerOverlapsEntrySquare()) state.entryClosed = false;
-  checkExitTransition();
 }
+
 function checkExitTransition() {
   if (state.transition) return;
   const p = state.player;
