@@ -21,6 +21,8 @@ const MARKER_R = 0.34;
 const GRAVITY = 30;
 const JUMP_HEIGHT = 2.62;
 const JUMP_V = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
+const JUMP_RELEASE_MULT = 0.42;
+const JUMP_KEYS = new Set(['w', ' ', 'z', 'arrowup']);
 const MOVE_SPEED = 5.2;
 const AIR_ACCEL = 26;
 const GROUND_ACCEL = 40;
@@ -331,7 +333,9 @@ function computeFarthestVertices() {
 const FARTHEST_VERTEX = computeFarthestVertices();
 
 let state;
-const input = { left: false, right: false, joystickX: 0, jumpQueued: false, defendQueued: false };
+const input = { left: false, right: false, joystickX: 0, jumpQueued: false, jumpHeld: false, jumpReleased: false, defendQueued: false };
+const jumpKeysDown = new Set();
+let jumpTouchActive = null;
 let lastFrame = performance.now();
 let saveTimer = 0;
 let messageTimer = 0;
@@ -482,6 +486,14 @@ function playerOverlapsEntrySquare() {
   const left = 7, right = 8, top = SIZE - 1, bottom = SIZE;
   return p.x + PLAYER_R > left && p.x - PLAYER_R < right && p.y + PLAYER_R > top && p.y - PLAYER_R < bottom;
 }
+function setJumpHeld(held) {
+  const wasHeld = input.jumpHeld;
+  input.jumpHeld = held;
+  if (wasHeld && !held) input.jumpReleased = true;
+}
+function refreshJumpHeld() {
+  setJumpHeld(jumpKeysDown.size > 0 || jumpTouchActive !== null);
+}
 function jump() {
   const p = state.player;
   if (p.grounded) {
@@ -498,6 +510,10 @@ function jump() {
 function updatePlayer(dt) {
   const p = state.player;
   if (input.jumpQueued) { jump(); input.jumpQueued = false; }
+  if (input.jumpReleased) {
+    if (!input.jumpHeld && p.vy < 0) p.vy *= JUMP_RELEASE_MULT;
+    input.jumpReleased = false;
+  }
   const left = input.left || input.joystickX < -0.25;
   const right = input.right || input.joystickX > 0.25;
   const dir = (right ? 1 : 0) - (left ? 1 : 0);
@@ -1031,7 +1047,11 @@ function setupInput() {
     if (['arrowleft','arrowright',' ','arrowup','w','z','a','d','x','m','v','c','escape','k'].includes(k)) e.preventDefault();
     if (k === 'a' || k === 'arrowleft') input.left = true;
     if (k === 'd' || k === 'arrowright') input.right = true;
-    if (k === 'w' || k === ' ' || k === 'z' || k === 'arrowup') { if (!e.repeat) input.jumpQueued = true; }
+    if (JUMP_KEYS.has(k)) {
+      if (!jumpKeysDown.has(k) && !e.repeat) input.jumpQueued = true;
+      jumpKeysDown.add(k);
+      refreshJumpHeld();
+    }
     if (k === 'x') { if (!e.repeat && state.goldStored > 0) input.defendQueued = true; }
     if (k === 'k') { if (!e.repeat) killPlayer(true); }
     if (k === 'm' && !e.repeat) toggleFullMap();
@@ -1046,11 +1066,28 @@ function setupInput() {
     const k = e.key.toLowerCase();
     if (k === 'a' || k === 'arrowleft') input.left = false;
     if (k === 'd' || k === 'arrowright') input.right = false;
+    if (JUMP_KEYS.has(k)) {
+      jumpKeysDown.delete(k);
+      refreshJumpHeld();
+    }
   });
   els.maze.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button === 0 && state.goldStored > 0) input.defendQueued = true;
   });
-  els.mobileJump.addEventListener('pointerdown', (e) => { e.preventDefault(); input.jumpQueued = true; });
+  els.mobileJump.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    jumpTouchActive = e.pointerId;
+    els.mobileJump.setPointerCapture?.(e.pointerId);
+    input.jumpQueued = true;
+    refreshJumpHeld();
+  });
+  const endJumpTouch = (e) => {
+    if (e.pointerId !== jumpTouchActive) return;
+    jumpTouchActive = null;
+    refreshJumpHeld();
+  };
+  els.mobileJump.addEventListener('pointerup', endJumpTouch);
+  els.mobileJump.addEventListener('pointercancel', endJumpTouch);
   els.mobileDefend.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!els.mobileDefend.disabled && state.goldStored > 0) input.defendQueued = true; });
   setupStick();
 }

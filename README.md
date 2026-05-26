@@ -14,7 +14,7 @@ The project is written as a small static web app. No server-side code is require
 
 - 600 deterministic vertex mazes connected by the 120-cell graph
 - Phi-Spur Live Contact Backtracker maze generation with seeded DFS and live loop creation
-- Platformer movement with gravity, left/right motion, a 2.62-square jump, and one airborne double jump
+- Platformer movement with gravity, left/right motion, variable-height jumps up to 2.62 squares, and one airborne double jump
 - Pentagon player body with rotation and side-settling behavior
 - Centered exits on every maze side
 - Room orientation that places the entry door at the bottom of the current room
@@ -42,8 +42,8 @@ The project is written as a small static web app. No server-side code is require
 | Action | Keyboard / Mouse / Touch |
 |---|---|
 | Move left/right | `A` / `D`, left/right arrows, or mobile thumbstick |
-| Jump | `W`, `Space`, `Z`, or mobile Jump button |
-| Double jump | Press jump once while airborne |
+| Jump | `W`, `Space`, `Z`, or mobile Jump button; tap for a short hop, hold for full height |
+| Double jump | Press jump once while airborne; early release also shortens the double jump |
 | Defend | `X`, click inside the maze area, or mobile Defend button when gold storage is unlocked |
 | Kill/respawn | `K` or Kill player button |
 | Pause/resume game | `Esc` or Pause game button |
