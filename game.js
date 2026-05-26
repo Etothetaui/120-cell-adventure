@@ -37,7 +37,7 @@ const $ = (id) => document.getElementById(id);
 const els = {
   loading: $('loading'), maze: $('maze'), map: $('map'), fullMap: $('fullMap'),
   mapOverlay: $('mapOverlay'), closeMap: $('closeMap'), fullMapButton: $('fullMapButton'), pauseGame: $('pauseGame'),
-  resetMapView: $('resetMapView'), visitedMode: $('visitedMode'), cellFocus: $('cellFocus'),
+  killPlayerButton: $('killPlayerButton'), resetMapView: $('resetMapView'), visitedMode: $('visitedMode'), cellFocus: $('cellFocus'),
   reset: $('reset'), newMazeSet: $('newMazeSet'), seedInput: $('seedInput'), seededNewGame: $('seededNewGame'),
   exportSave: $('exportSave'), saveExport: $('saveExport'), copySave: $('copySave'),
   saveImport: $('saveImport'), importSave: $('importSave'), status: $('status'), message: $('message'),
@@ -82,7 +82,26 @@ function vertexLabel(id) { return String(id).padStart(3, '0'); }
 function floorColorForVertex(vertexId) { return POLYTOPE_DATA.vertices[vertexId].cells[0]; }
 function hueForCell(cellId) { return ((cellId || 0) * 137.508) % 360; }
 function colorForCell(cellId, alpha = 1) { return `hsla(${hueForCell(cellId)}, 72%, 58%, ${alpha})`; }
-function inverseColorForVertex(vertexId, alpha = 1) { return `hsla(${(hueForCell(floorColorForVertex(vertexId)) + 180) % 360}, 88%, 62%, ${alpha})`; }
+function hslToRgb(h, sPercent, lPercent) {
+  const s = sPercent / 100;
+  const l = lPercent / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = (((h % 360) + 360) % 360) / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (hp < 1) [r1, g1, b1] = [c, x, 0];
+  else if (hp < 2) [r1, g1, b1] = [x, c, 0];
+  else if (hp < 3) [r1, g1, b1] = [0, c, x];
+  else if (hp < 4) [r1, g1, b1] = [0, x, c];
+  else if (hp < 5) [r1, g1, b1] = [x, 0, c];
+  else [r1, g1, b1] = [c, 0, x];
+  const m = l - c / 2;
+  return [Math.round((r1 + m) * 255), Math.round((g1 + m) * 255), Math.round((b1 + m) * 255)];
+}
+function inverseColorForVertex(vertexId, alpha = 1) {
+  const [r, g, b] = hslToRgb(hueForCell(floorColorForVertex(vertexId)), 72, 58);
+  return `rgba(${255 - r}, ${255 - g}, ${255 - b}, ${alpha})`;
+}
 function formatElapsed(ms) {
   const sec = Math.floor(ms / 1000); const m = Math.floor(sec / 60); const s = sec % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
@@ -589,8 +608,10 @@ function checkEnemyCollision() {
     }
   }
 }
-function killPlayer() {
-  if (gameNow() < state.player.invulnerableUntil) return;
+function killPlayer(force = false) {
+  if (!state) return;
+  if (!force && gameNow() < state.player.invulnerableUntil) return;
+  state.transition = null;
   const deathVertex = state.currentVertex;
   scatterStoredGold(deathVertex);
   state.deaths++;
@@ -840,6 +861,30 @@ function drawScene() {
 
   ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1;
   ctx.strokeRect(originX, originY, boardPx, boardPx);
+  if (state.paused) drawPauseOverlay(ctx, w, h, cx, cy, boardPx);
+}
+
+function drawPauseOverlay(ctx, w, h, cx, cy, boardPx) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, boardPx * Math.SQRT1_2, 0, TAU);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(2, 5, 12, 0.38)';
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `900 ${Math.max(34, boardPx * 0.16)}px system-ui, sans-serif`;
+  ctx.lineWidth = Math.max(3, boardPx * 0.012);
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.78)';
+  ctx.fillStyle = 'rgba(237, 243, 255, 0.94)';
+  ctx.shadowColor = 'rgba(255, 255, 255, 0.32)';
+  ctx.shadowBlur = 18;
+  ctx.strokeText('PAUSED', cx, cy);
+  ctx.fillText('PAUSED', cx, cy);
+  ctx.restore();
 }
 
 const mapRenderer = new MapRenderer({ stateProvider: () => state, onModeButtonUpdate: updateMapControlButtons });
@@ -891,6 +936,10 @@ function cycleFocus() {
 }
 
 
+function isTextEntryTarget(target) {
+  return target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+}
+
 function togglePause() {
   if (!state) return;
   const now = performance.now();
@@ -927,6 +976,7 @@ function setupInput() {
     if (k === 'd' || k === 'arrowright') input.right = true;
     if (k === 'w' || k === ' ' || k === 'z' || k === 'arrowup') { if (!e.repeat) input.jumpQueued = true; }
     if (k === 'x') { if (!e.repeat) input.defendQueued = true; }
+    if (k === 'k' && !e.repeat && !isTextEntryTarget(e.target)) { e.preventDefault(); killPlayer(true); }
     if (k === 'm' && !e.repeat) toggleFullMap();
     if (k === 'v' && !e.repeat) cycleMapFilter();
     if (k === 'c' && !e.repeat) cycleFocus();
@@ -966,6 +1016,7 @@ function closeFullMap() { els.mapOverlay.classList.add('hidden'); }
 function bindUI() {
   els.fullMapButton.addEventListener('click', toggleFullMap);
   els.pauseGame.addEventListener('click', togglePause);
+  if (els.killPlayerButton) els.killPlayerButton.addEventListener('click', () => killPlayer(true));
   els.closeMap.addEventListener('click', closeFullMap);
   els.resetMapView.addEventListener('click', () => mapRenderer.resetView());
   els.visitedMode.addEventListener('click', cycleMapFilter);

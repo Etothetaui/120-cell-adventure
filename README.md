@@ -22,7 +22,9 @@ The same files can also be published with GitHub Pages. For GitHub Pages, keep `
 - Marker-based discovery and win condition: discover all 600 markers to win
 - One equilateral-triangle enemy spawned for every maze, with global one-square-per-second random-walk movement
 - Enemy travel through maze exits
+- Enemy color is the RGB inverse of the background/floor color of its birth maze
 - Death and respawn at the last touched marker, or the original start position if no marker has been touched
+- Manual kill/respawn button and `K` keyboard shortcut for returning to the last checkpoint
 - 7,200 gold collectibles distributed randomly throughout the 600 mazes
 - Gold storage capacity based on discovered marker count
 - Defend action powered by stored gold
@@ -35,6 +37,8 @@ The same files can also be published with GitHub Pages. For GitHub Pages, keep `
   - reset map view
 - Map filters for all, discovered-only, and undiscovered-only mazes
 - Current-cell focus modes, including a 2D projection mode
+- Pause overlay that dims the maze and displays PAUSED
+- Mobile touch controls placed below the maze viewport so they do not cover gameplay
 - Local browser save support
 - Save export and import with checksum validation
 - Seeded new games
@@ -43,10 +47,11 @@ The same files can also be published with GitHub Pages. For GitHub Pages, keep `
 
 | Action | Keyboard / Mouse / Touch |
 |---|---|
-| Move left/right | `A` / `D`, left/right arrows, or mobile thumbstick |
-| Jump | `W`, `Space`, `Z`, or mobile Jump button |
+| Move left/right | `A` / `D`, left/right arrows, or the mobile thumbstick below the maze |
+| Jump | `W`, `Space`, `Z`, or the mobile Jump button below the maze |
 | Double jump | Press jump once while airborne |
-| Defend | `X`, click inside the maze area, or mobile Defend button |
+| Defend | `X`, click inside the maze area, or the mobile Defend button below the maze |
+| Kill/respawn player | `K` or Kill player button |
 | Pause game | `Esc` or Pause game button |
 | Full map | `M` or Full map button |
 | Map filter | `V` or map filter button: all / discovered / undiscovered |

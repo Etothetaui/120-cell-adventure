@@ -121,15 +121,15 @@ textarea { resize: vertical; min-height: 54px; }
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
   body { overflow: auto; min-height: 100svh; }
   #app { position: static; min-height: 100svh; display: flex; flex-direction: column; }
-  #stage { order: 1; min-height: 320px; padding: 0; display: block; }
-  #maze { width: 100%; height: min(66svh, 100vw); aspect-ratio: auto; border-radius: 0; border-left: 0; border-right: 0; }
+  #stage { order: 1; min-height: 320px; padding: 0; display: flex; flex-direction: column; align-items: stretch; overflow: visible; }
+  #maze { width: 100%; height: min(62svh, 100vw); aspect-ratio: auto; border-radius: 0; border-left: 0; border-right: 0; flex: 0 0 auto; }
   #hud { order: 2; border-left: 0; border-top: 1px solid rgba(255,255,255,0.12); max-height: none; overflow: visible; }
   #mapShell { width: calc(100% - 36px); max-width: 360px; margin: 4px auto; }
-  #mobileControls { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; padding: 0 18px 18px; }
-  #stickBase { width: 112px; height: 72px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.20); background: rgba(5,8,15,0.42); backdrop-filter: blur(8px); pointer-events: auto; position: relative; touch-action: none; }
+  #mobileControls { position: static; display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 16px; pointer-events: none; padding: 12px 18px max(14px, env(safe-area-inset-bottom)); border-top: 1px solid rgba(255,255,255,0.10); background: rgba(5,8,15,0.42); backdrop-filter: blur(8px); flex: 0 0 auto; }
+  #stickBase { width: 112px; height: 72px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.20); background: rgba(5,8,15,0.42); pointer-events: auto; position: relative; touch-action: none; flex: 0 0 auto; }
   #stickThumb { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin-left: -21px; margin-top: -21px; border-radius: 999px; background: rgba(237,243,255,0.85); box-shadow: 0 0 18px rgba(255,255,255,0.35); }
-  #mobileActionButtons { display: grid; grid-template-columns: 1fr; gap: 10px; pointer-events: auto; }
-  #mobileActionButtons button { min-width: 92px; min-height: 52px; border-radius: 18px; background: rgba(5,8,15,0.58); backdrop-filter: blur(8px); touch-action: manipulation; }
+  #mobileActionButtons { display: grid; grid-template-columns: 1fr; gap: 10px; pointer-events: auto; flex: 0 0 auto; }
+  #mobileActionButtons button { min-width: 92px; min-height: 52px; border-radius: 18px; background: rgba(5,8,15,0.58); touch-action: manipulation; }
   .full-map-controls { left: 16px; right: 16px; top: 82px; max-width: none; }
   #closeMap { right: 16px; top: 20px; }
 }
