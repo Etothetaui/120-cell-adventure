@@ -37,7 +37,7 @@ The project is written as a small static web app. No server-side code is require
 - Local browser save support
 - Save export and import
 - Seeded new games
-- Game pause overlay, paused gameplay-input discard, and manual Kill player respawn control
+- Game pause overlay, active-play timer, paused gameplay-input discard, and manual Kill player respawn control
 
 ## Controls
 
@@ -58,7 +58,7 @@ The project is written as a small static web app. No server-side code is require
 | Zoom map | Mouse wheel, trackpad scroll, or pinch |
 | Close full map | `Esc` or Close button |
 
-Gameplay inputs made while the game is paused are discarded instead of queued. Pause/resume and map/UI controls remain usable while paused.
+Gameplay inputs made while the game is paused are discarded instead of queued. Pause/resume and map/UI controls remain usable while paused. The timer tracks active unpaused play time only; it does not advance while paused or while the tab is closed/inactive.
 
 ## Discovery, energy, and defend
 
@@ -88,7 +88,7 @@ targeted move chance = discovered maze count / 600
 random move chance   = (600 - discovered maze count) / 600
 ```
 
-A random move uses the original enemy movement behavior exactly. A targeted move uses shortest maze distance. If the enemy is in the same maze as the player, it moves toward the player's current cell. If the enemy is in a different maze, it uses a precomputed all-pairs 120-cell routing table to identify shortest-route candidate exits toward the player's maze, chooses the candidate exit closest to the enemy by local maze distance, breaks remaining exit ties randomly, and moves toward that exit.
+A random move uses the existing wandering behavior, with one correction: after an enemy enters a maze through an exit, random movement avoids immediately returning through the same maze connection when another valid move exists. A targeted move uses shortest maze distance. If the enemy is in the same maze as the player, it moves toward the player's current cell. If the enemy is in a different maze, it uses a precomputed all-pairs 120-cell routing table to identify shortest-route candidate exits toward the player's maze, chooses the candidate exit closest to the enemy by local maze distance, breaks remaining exit ties randomly, and moves toward that exit.
 
 This makes enemy pursuit scale with discovery progress: early in a run enemies mostly wander, while late-game enemies increasingly route toward the player.
 
@@ -105,7 +105,7 @@ When multiple contacts qualify, the implementation chooses the valid contact wit
 
 ## Saves and seeds
 
-Progress is saved locally in the browser. You can also export your save as an encoded text string and import it on another device.
+Progress is saved locally in the browser. You can also export your save as an encoded text string and import it on another device. Saves store accumulated active play time rather than wall-clock time.
 
 A new save system is used for this game and is not intended to be compatible with older saves from the previous project.
 

@@ -326,7 +326,7 @@ function generateEnemies(seed) {
     return {
       id: v.id, birthVertex: v.id, currentVertex: v.id,
       x: randInt(rng, SIZE), y: randInt(rng, SIZE),
-      prevDir: null, angle: rng() * TAU, removedUntil: 0
+      prevDir: null, enteredFromVertex: null, angle: rng() * TAU, removedUntil: 0
     };
   });
 }
@@ -451,7 +451,7 @@ function newState(seed) {
     enemies: generateEnemies(seed), enemyTimer: 0,
     defense: null,
     transition: null,
-    startedAt: Date.now(), transitions: 0, deaths: 0,
+    elapsedActiveMs: 0, transitions: 0, deaths: 0,
     mapFilter: 'all', focusMode: 2,
     rngCounter: 0,
     won: false
@@ -603,7 +603,7 @@ function stateForSave() {
     energyStored: state.energyStored,
     enemies: state.enemies.map(e => ({ ...e, removedRemaining: Math.max(0, e.removedUntil - now), removedUntil: 0 })),
     enemyTimer: state.enemyTimer,
-    startedAt: state.startedAt,
+    elapsedActiveMs: Math.max(0, Number(state.elapsedActiveMs) || 0),
     transitions: state.transitions,
     deaths: state.deaths,
     mapFilter: state.mapFilter,
@@ -633,11 +633,14 @@ function applySave(payload) {
   next.energyStored = Math.max(0, Number(savedEnergyStored) || 0);
   if (Array.isArray(payload.enemies) && payload.enemies.length === 600) next.enemies = payload.enemies.map((e, i) => ({
     id: i, birthVertex: e.birthVertex|0, currentVertex: e.currentVertex|0, x: e.x|0, y: e.y|0,
-    prevDir: e.prevDir || null, angle: Number(e.angle) || 0,
+    prevDir: e.prevDir || null,
+    enteredFromVertex: Number.isInteger(e.enteredFromVertex) ? e.enteredFromVertex : null,
+    angle: Number(e.angle) || 0,
     removedUntil: performance.now() + Math.max(0, Number(e.removedRemaining) || 0)
   }));
   next.enemyTimer = Number(payload.enemyTimer) || 0;
-  next.startedAt = Number(payload.startedAt) || Date.now();
+  if (Number.isFinite(payload.elapsedActiveMs)) next.elapsedActiveMs = Math.max(0, Number(payload.elapsedActiveMs));
+  else if (Number.isFinite(payload.startedAt)) next.elapsedActiveMs = Math.max(0, Date.now() - Number(payload.startedAt));
   next.transitions = Number(payload.transitions) || 0;
   next.deaths = Number(payload.deaths) || 0;
   if (['all','visited','unvisited'].includes(payload.mapFilter)) next.mapFilter = payload.mapFilter;
@@ -1004,6 +1007,10 @@ function playerCanonicalCell() {
 }
 function chooseRandomEnemyMove(enemy, moves, rng) {
   let choices = moves;
+  if (Number.isInteger(enemy.enteredFromVertex)) {
+    const nonReturn = choices.filter(m => m.vertex !== enemy.enteredFromVertex);
+    if (nonReturn.length) choices = nonReturn;
+  }
   if (enemy.prevDir) {
     const reverse = OPPOSITE[enemy.prevDir];
     const nonReverse = choices.filter(m => m.dir !== reverse);
@@ -1097,7 +1104,9 @@ function moveEnemiesStep() {
     const useTargetedMove = targetChance > 0 && (targetChance >= 1 || rng() < targetChance);
     const targetedMove = useTargetedMove ? chooseTargetedEnemyMove(e, moves, context, rng) : null;
     const m = targetedMove || chooseRandomEnemyMove(e, moves, rng);
+    const fromVertex = e.currentVertex;
     e.currentVertex = m.vertex; e.x = m.x; e.y = m.y; e.prevDir = m.dir;
+    e.enteredFromVertex = m.vertex !== fromVertex ? fromVertex : null;
     e.angle += ENEMY_ROTATIONS[randInt(rng, ENEMY_ROTATIONS.length)];
   }
 }
@@ -1111,7 +1120,7 @@ function respawnEnemy(e) {
   const vertex = FARTHEST_VERTEX[e.birthVertex];
   e.currentVertex = vertex;
   e.x = randInt(rng, SIZE); e.y = randInt(rng, SIZE);
-  e.prevDir = null; e.removedUntil = 0;
+  e.prevDir = null; e.enteredFromVertex = null; e.removedUntil = 0;
   const energyVertex = randomMazeAmongRespawnBorder(vertex);
   addEnergyRandom(energyVertex, 3);
 }
@@ -1226,7 +1235,8 @@ function pointInPolygon(x, y, pts) {
 
 function update(dt) {
   if (messageTimer > 0) { messageTimer -= dt; if (messageTimer <= 0) els.message.textContent = ''; }
-  if (paused) { clearGameplayInput(); return; }
+  if (document.hidden || paused) { clearGameplayInput(); return; }
+  state.elapsedActiveMs = Math.max(0, (Number(state.elapsedActiveMs) || 0) + dt * 1000);
   state.enemyTimer += dt;
   while (state.enemyTimer >= 1) { state.enemyTimer -= 1; moveEnemiesStep(); }
   if (state.transition) {
@@ -1477,7 +1487,7 @@ function updateHUD() {
     Energy on board: ${activeEnergy}<br>
     Transitions: ${state.transitions}<br>
     Deaths: ${state.deaths}<br>
-    Time: ${formatElapsed(Date.now() - state.startedAt)}<br>
+    Time: ${formatElapsed(state.elapsedActiveMs)}<br>
     Map: ${state.mapFilter} · ${focusLabel()}${mapRenderer.view.autoRotate ? '' : ' · map paused'}${paused ? ' · game paused' : ''}<br>
     Seed: ${state.seed}
   `;
@@ -1494,6 +1504,7 @@ function togglePauseGame(force) {
   paused = force ?? !paused;
   clearGameplayInput();
   els.pauseGame.textContent = paused ? 'Resume game (Esc)' : 'Pause game (Esc)';
+  if (state) saveNow();
 }
 
 function focusLabel() { return state.focusMode === 0 ? 'focus off' : state.focusMode === 1 ? 'current cell focus' : '2D cell focus'; }
@@ -1683,6 +1694,11 @@ function bindUI() {
   els.importSave.addEventListener('click', () => {
     try { applySave(decodeSave(els.saveImport.value)); saveNow(); }
     catch (err) { setMessage(err.message || 'Import failed.'); }
+  });
+  window.addEventListener('pagehide', saveNow);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveNow();
+    lastFrame = performance.now();
   });
 }
 
