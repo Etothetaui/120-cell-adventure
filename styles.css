@@ -5,7 +5,7 @@
   --line: rgba(255,255,255,0.14);
   --text: #edf3ff;
   --muted: rgba(237,243,255,0.66);
-  --gold: #ffd84a;
+  --energy: #ffd84a;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);
   color: var(--text);
@@ -60,16 +60,16 @@ body {
 }
 h1 { font-size: 18px; margin: 0 0 3px; letter-spacing: 0.02em; }
 .subtitle { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
-#goldPanel {
+#energyPanel {
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 14px;
   background: rgba(255,255,255,0.04);
   padding: 8px 9px;
 }
-.gold-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
-#goldCounter { font-variant-numeric: tabular-nums; color: #fff2a5; font-weight: 800; }
-#goldBar {
-  width: var(--gold-bar-width, 10px);
+.energy-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+#energyCounter { font-variant-numeric: tabular-nums; color: #fff2a5; font-weight: 800; }
+#energyBar {
+  width: var(--energy-bar-width, 10px);
   min-width: 10px;
   max-width: 100%;
   height: 12px;
@@ -80,7 +80,7 @@ h1 { font-size: 18px; margin: 0 0 3px; letter-spacing: 0.02em; }
   background: rgba(255,216,74,0.10);
   box-shadow: inset 0 0 10px rgba(0,0,0,0.35);
 }
-#goldFill { height: 100%; width: 0%; border-radius: inherit; background: var(--gold); box-shadow: 0 0 14px rgba(255,216,74,0.85); }
+#energyFill { height: 100%; width: 0%; border-radius: inherit; background: var(--energy); box-shadow: 0 0 14px rgba(255,216,74,0.85); }
 #mapShell { position: relative; width: min(100%, 228px); align-self: center; aspect-ratio: 1 / 1; flex: 0 0 auto; }
 #map { width: 100%; height: 100%; display: block; border: 1px solid rgba(255,255,255,0.14); border-radius: 16px; background: #090d18; box-shadow: 0 12px 32px rgba(0,0,0,0.25); touch-action: none; }
 .map-corner-controls { position: absolute; top: 8px; left: 8px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; }

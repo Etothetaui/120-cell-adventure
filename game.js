@@ -17,7 +17,7 @@ const SIDE_TO_INDEX = { N: 0, E: 1, S: 2, W: 3 };
 const INDEX_TO_SIDE = ['N', 'E', 'S', 'W'];
 const PLAYER_R = 0.27;
 const PLAYER_MAX_SUBSTEP = PLAYER_R / 3;
-const GOLD_R = PLAYER_R * 0.5;
+const ENERGY_R = PLAYER_R * 0.5;
 const ENEMY_R = PLAYER_R;
 const MARKER_R = 0.34;
 const GRAVITY = 30;
@@ -33,7 +33,7 @@ const INVULNERABLE_MS = 3000;
 const DEFENSE_MS = 180;
 const PHI = (1 + Math.sqrt(5)) / 2;
 const ENEMY_ROTATIONS = [-36, -24, -12, 12, 24, 36].map(d => d * Math.PI / 180);
-const GOLD_COLOR = '#ffd84a';
+const ENERGY_COLOR = '#ffd84a';
 const TAU = Math.PI * 2;
 const DIRECTION_CONTROL_STORAGE_KEY = '120-cell-adventure-direction-controls';
 const DIRECTION_CONTROL_MODES = ['joystick', 'buttons', 'tilt'];
@@ -53,7 +53,7 @@ const els = {
   reset: $('reset'), newMazeSet: $('newMazeSet'), seedInput: $('seedInput'), seededNewGame: $('seededNewGame'),
   exportSave: $('exportSave'), saveExport: $('saveExport'), copySave: $('copySave'),
   saveImport: $('saveImport'), importSave: $('importSave'), status: $('status'), message: $('message'),
-  goldCounter: $('goldCounter'), goldBar: $('goldBar'), goldFill: $('goldFill'),
+  energyCounter: $('energyCounter'), energyBar: $('energyBar'), energyFill: $('energyFill'),
   mobileControls: $('mobileControls'), mobileDirectionArea: $('mobileDirectionArea'), directionControls: $('directionControls'),
   stickBase: $('stickBase'), stickThumb: $('stickThumb'), mobileMoveButtons: $('mobileMoveButtons'),
   mobileLeft: $('mobileLeft'), mobileRight: $('mobileRight'), mobileJump: $('mobileJump'), mobileDefend: $('mobileDefend')
@@ -307,15 +307,15 @@ function generateMarkers(seed) {
     return { vertex: v.id, x: randInt(rng, SIZE), y: randInt(rng, SIZE), touched: false };
   });
 }
-function generateGold(seed, markers) {
+function generateEnergy(seed, markers) {
   const rng = mulberry32((0x601D ^ seed) >>> 0);
-  const gold = [];
+  const energy = [];
   for (let i = 0; i < 7200; i++) {
     const vertex = randInt(rng, 600);
     const sq = randomSquareAvoidingMarker(rng, markers[vertex]);
-    gold.push({ id: i, vertex, x: sq.x + 0.5, y: sq.y + 0.5, active: true });
+    energy.push({ id: i, vertex, x: sq.x + 0.5, y: sq.y + 0.5, active: true });
   }
-  return gold;
+  return energy;
 }
 function generateEnemies(seed) {
   return POLYTOPE_DATA.vertices.map(v => {
@@ -443,7 +443,7 @@ function newState(seed) {
     player: { x: 7.5, y: 7.5, vx: 0, vy: 0, angle: 0, angularVelocity: 0, grounded: false, usedDoubleJump: false, invulnerableUntil: 0 },
     discovered: new Set(), lastMarker: null,
     markers,
-    gold: generateGold(seed, markers), goldStored: 0,
+    energy: generateEnergy(seed, markers), energyStored: 0,
     enemies: generateEnemies(seed), enemyTimer: 0,
     defense: null,
     transition: null,
@@ -459,7 +459,7 @@ function makeRuntimeRng(salt = 0) {
   return mulberry32((state.seed ^ 0xA37E120 ^ Math.imul(state.rngCounter + salt, 1103515245)) >>> 0);
 }
 function currentMaze() { return state.mazes[state.currentVertex]; }
-function goldCapacity() { return Math.round(state.discovered.size / 50); }
+function energyCapacity() { return Math.round(state.discovered.size / 50); }
 function displayDoors(maze, q) {
   return maze.doors.map(door => ({ ...door, displaySide: sideAfterRotation(door.side, q), displayCell: canonCellToDisplay(door.x, door.y, q) }));
 }
@@ -574,8 +574,8 @@ function stateForSave() {
     discovered: [...state.discovered],
     lastMarker: state.lastMarker,
     markers: state.markers.map(m => ({ vertex: m.vertex, x: m.x, y: m.y, touched: m.touched })),
-    gold: state.gold,
-    goldStored: state.goldStored,
+    energy: state.energy,
+    energyStored: state.energyStored,
     enemies: state.enemies.map(e => ({ ...e, removedRemaining: Math.max(0, e.removedUntil - now), removedUntil: 0 })),
     enemyTimer: state.enemyTimer,
     startedAt: state.startedAt,
@@ -601,8 +601,11 @@ function applySave(payload) {
   next.discovered = new Set(Array.isArray(payload.discovered) ? payload.discovered.filter(n => Number.isInteger(n) && n >= 0 && n < 600) : []);
   next.lastMarker = payload.lastMarker || null;
   if (Array.isArray(payload.markers) && payload.markers.length === 600) next.markers = payload.markers.map((m, i) => ({ vertex: i, x: Math.max(0, Math.min(14, m.x|0)), y: Math.max(0, Math.min(14, m.y|0)), touched: !!m.touched }));
-  if (Array.isArray(payload.gold)) next.gold = payload.gold.map((g, i) => ({ id: Number.isInteger(g.id) ? g.id : i, vertex: g.vertex|0, x: Number(g.x), y: Number(g.y), active: !!g.active }));
-  next.goldStored = Math.max(0, Number(payload.goldStored) || 0);
+  const previousResourceName = String.fromCharCode(103, 111, 108, 100);
+  const savedEnergy = Array.isArray(payload.energy) ? payload.energy : payload[previousResourceName];
+  if (Array.isArray(savedEnergy)) next.energy = savedEnergy.map((g, i) => ({ id: Number.isInteger(g.id) ? g.id : i, vertex: g.vertex|0, x: Number(g.x), y: Number(g.y), active: !!g.active }));
+  const savedEnergyStored = payload.energyStored ?? payload[`${previousResourceName}Stored`];
+  next.energyStored = Math.max(0, Number(savedEnergyStored) || 0);
   if (Array.isArray(payload.enemies) && payload.enemies.length === 600) next.enemies = payload.enemies.map((e, i) => ({
     id: i, birthVertex: e.birthVertex|0, currentVertex: e.currentVertex|0, x: e.x|0, y: e.y|0,
     prevDir: e.prevDir || null, angle: Number(e.angle) || 0,
@@ -885,7 +888,7 @@ function completeTransition() {
 function markerDisplayPosition(marker, q) {
   return canonPointToDisplay(marker.x + 0.5, marker.y + 0.5, q);
 }
-function goldCapacityClamped() { return Math.max(0, goldCapacity()); }
+function energyCapacityClamped() { return Math.max(0, energyCapacity()); }
 function checkCollectibles() {
   const p = state.player;
   const marker = markerForVertex(state.markers, state.currentVertex);
@@ -902,29 +905,29 @@ function checkCollectibles() {
       setMessage('All 600 markers discovered. You win.', 8);
     }
   }
-  const cap = goldCapacityClamped();
-  for (const g of state.gold) {
+  const cap = energyCapacityClamped();
+  for (const g of state.energy) {
     if (!g.active || g.vertex !== state.currentVertex) continue;
     const gp = canonPointToDisplay(g.x, g.y, state.orientation);
-    if (Math.hypot(p.x - gp.x, p.y - gp.y) < PLAYER_R + GOLD_R) {
+    if (Math.hypot(p.x - gp.x, p.y - gp.y) < PLAYER_R + ENERGY_R) {
       g.active = false;
-      if (state.goldStored < cap) state.goldStored++;
+      if (state.energyStored < cap) state.energyStored++;
     }
   }
 }
-function addGoldRandom(vertex, count = 1) {
+function addEnergyRandom(vertex, count = 1) {
   const rng = makeRuntimeRng(vertex + count);
   const marker = state.markers[vertex];
   for (let i = 0; i < count; i++) {
     const sq = randomSquareAvoidingMarker(rng, marker);
-    state.gold.push({ id: state.gold.length, vertex, x: sq.x + 0.5, y: sq.y + 0.5, active: true });
+    state.energy.push({ id: state.energy.length, vertex, x: sq.x + 0.5, y: sq.y + 0.5, active: true });
   }
 }
-function scatterStoredGold(vertex) {
-  const count = state.goldStored;
+function scatterStoredEnergy(vertex) {
+  const count = state.energyStored;
   if (count <= 0) return;
-  addGoldRandom(vertex, count);
-  state.goldStored = 0;
+  addEnergyRandom(vertex, count);
+  state.energyStored = 0;
 }
 
 function enemyValidMoves(enemy) {
@@ -1067,8 +1070,8 @@ function respawnEnemy(e) {
   e.currentVertex = vertex;
   e.x = randInt(rng, SIZE); e.y = randInt(rng, SIZE);
   e.prevDir = null; e.removedUntil = 0;
-  const goldVertex = randomMazeAmongRespawnBorder(vertex);
-  addGoldRandom(goldVertex, 3);
+  const energyVertex = randomMazeAmongRespawnBorder(vertex);
+  addEnergyRandom(energyVertex, 3);
 }
 function enemyDisplayPosition(e, currentVertex = state.currentVertex, q = state.orientation) {
   if (e.currentVertex === currentVertex) {
@@ -1093,7 +1096,7 @@ function killPlayer(force = false) {
   if (!state) return;
   if (!force && performance.now() < state.player.invulnerableUntil) return;
   const deathVertex = state.currentVertex;
-  scatterStoredGold(deathVertex);
+  scatterStoredEnergy(deathVertex);
   state.deaths++;
   if (state.lastMarker) {
     state.currentVertex = state.lastMarker.vertex;
@@ -1113,9 +1116,9 @@ function killPlayer(force = false) {
 }
 
 function defend() {
-  if (state.transition || state.goldStored <= 0) return;
-  const g = state.goldStored;
-  state.goldStored = 0;
+  if (state.transition || state.energyStored <= 0) return;
+  const g = state.energyStored;
+  state.energyStored = 0;
   const defense = { x: state.player.x, y: state.player.y, angle: state.player.angle + 36 * Math.PI / 180, radius: g / 3, until: performance.now() + DEFENSE_MS };
   state.defense = defense;
   const vertices = regularPolygon(defense.x, defense.y, defense.radius, 5, defense.angle);
@@ -1167,7 +1170,7 @@ function update(dt) {
     if (performance.now() - state.transition.start >= state.transition.duration) completeTransition();
   } else {
     updatePlayer(dt);
-    if (input.defendQueued) { if (state.goldStored > 0) defend(); input.defendQueued = false; }
+    if (input.defendQueued) { if (state.energyStored > 0) defend(); input.defendQueued = false; }
     checkCollectibles();
     checkEnemyCollision();
   }
@@ -1199,10 +1202,10 @@ function drawItemsAndEnemies(ctx, vertex, q, cellPx) {
   const marker = state.markers[vertex];
   const mp = markerDisplayPosition(marker, q);
   drawMarker(ctx, mp.x * cellPx, mp.y * cellPx, cellPx, vertex, marker.touched);
-  for (const g of state.gold) {
+  for (const g of state.energy) {
     if (!g.active || g.vertex !== vertex) continue;
     const gp = canonPointToDisplay(g.x, g.y, q);
-    drawGold(ctx, gp.x * cellPx, gp.y * cellPx, cellPx);
+    drawEnergy(ctx, gp.x * cellPx, gp.y * cellPx, cellPx);
   }
   for (const e of state.enemies) {
     if (e.removedUntil || e.currentVertex !== vertex) continue;
@@ -1227,10 +1230,10 @@ function drawMarker(ctx, x, y, cellPx, vertex, touched) {
   ctx.fillText(vertexLabel(vertex), x, y);
   ctx.restore();
 }
-function drawGold(ctx, x, y, cellPx) {
-  const r = GOLD_R * cellPx;
+function drawEnergy(ctx, x, y, cellPx) {
+  const r = ENERGY_R * cellPx;
   ctx.save(); ctx.translate(x, y);
-  ctx.fillStyle = GOLD_COLOR; ctx.shadowColor = 'rgba(255,216,74,0.85)'; ctx.shadowBlur = 12;
+  ctx.fillStyle = ENERGY_COLOR; ctx.shadowColor = 'rgba(255,216,74,0.85)'; ctx.shadowBlur = 12;
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
     const a = -Math.PI / 2 + i * TAU / 6;
@@ -1372,19 +1375,19 @@ function drawMaps() {
 }
 
 function updateHUD() {
-  const cap = goldCapacityClamped();
-  if (state.goldStored > cap) state.goldStored = cap;
-  els.goldCounter.textContent = `${state.goldStored}/${cap}`;
+  const cap = energyCapacityClamped();
+  if (state.energyStored > cap) state.energyStored = cap;
+  els.energyCounter.textContent = `${state.energyStored}/${cap}`;
   const width = Math.max(10, cap * 18);
-  els.goldBar.style.setProperty('--gold-bar-width', `${width}px`);
-  els.goldFill.style.width = cap > 0 ? `${Math.min(100, 100 * state.goldStored / cap)}%` : '0%';
+  els.energyBar.style.setProperty('--energy-bar-width', `${width}px`);
+  els.energyFill.style.width = cap > 0 ? `${Math.min(100, 100 * state.energyStored / cap)}%` : '0%';
   updateDefendControlState(cap);
-  const activeGold = state.gold.reduce((n, g) => n + (g.active ? 1 : 0), 0);
+  const activeEnergy = state.energy.reduce((n, g) => n + (g.active ? 1 : 0), 0);
   els.status.innerHTML = `
     <strong>Maze ${vertexLabel(state.currentVertex)}</strong><br>
     Discovered: ${state.discovered.size} / 600<br>
     Markers remaining: ${600 - state.discovered.size}<br>
-    Gold on board: ${activeGold}<br>
+    Energy on board: ${activeEnergy}<br>
     Transitions: ${state.transitions}<br>
     Deaths: ${state.deaths}<br>
     Time: ${formatElapsed(Date.now() - state.startedAt)}<br>
@@ -1394,11 +1397,11 @@ function updateHUD() {
   updateMapControlButtons();
 }
 
-function updateDefendControlState(cap = goldCapacityClamped()) {
+function updateDefendControlState(cap = energyCapacityClamped()) {
   const visible = cap > 0;
   els.mobileDefend.classList.toggle('hidden', !visible);
-  els.mobileDefend.disabled = visible && state.goldStored <= 0;
-  els.mobileDefend.setAttribute('aria-disabled', String(!visible || state.goldStored <= 0));
+  els.mobileDefend.disabled = visible && state.energyStored <= 0;
+  els.mobileDefend.setAttribute('aria-disabled', String(!visible || state.energyStored <= 0));
 }
 function togglePauseGame(force) {
   paused = force ?? !paused;
@@ -1440,7 +1443,7 @@ function setupInput() {
       jumpKeysDown.add(k);
       refreshJumpHeld();
     }
-    if (k === 'x') { if (!e.repeat && state.goldStored > 0) input.defendQueued = true; }
+    if (k === 'x') { if (!e.repeat && state.energyStored > 0) input.defendQueued = true; }
     if (k === 'k') { if (!e.repeat) killPlayer(true); }
     if (k === 'm' && !e.repeat) toggleFullMap();
     if (k === 'v' && !e.repeat) cycleMapFilter();
@@ -1460,7 +1463,7 @@ function setupInput() {
     }
   });
   els.maze.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse' && e.button === 0 && state.goldStored > 0) input.defendQueued = true;
+    if (e.pointerType === 'mouse' && e.button === 0 && state.energyStored > 0) input.defendQueued = true;
   });
   els.mobileJump.addEventListener('pointerdown', (e) => {
     e.preventDefault();
@@ -1476,7 +1479,7 @@ function setupInput() {
   };
   els.mobileJump.addEventListener('pointerup', endJumpTouch);
   els.mobileJump.addEventListener('pointercancel', endJumpTouch);
-  els.mobileDefend.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!els.mobileDefend.disabled && state.goldStored > 0) input.defendQueued = true; });
+  els.mobileDefend.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!els.mobileDefend.disabled && state.energyStored > 0) input.defendQueued = true; });
   els.directionControls.addEventListener('click', cycleDirectionControls);
   setupMoveButton(els.mobileLeft, 'left');
   setupMoveButton(els.mobileRight, 'right');

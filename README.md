@@ -28,9 +28,9 @@ The project is written as a small static web app. No server-side code is require
 - Targeted enemy movement uses shortest maze distance toward the player in the same maze, or toward the best shortest-route exit when outside the player's maze
 - Enemy travel through maze exits
 - Death and respawn at the last touched marker, or the original start position if no marker has been touched
-- 7,200 gold collectibles distributed randomly throughout the 600 mazes
-- Gold storage capacity based on discovered marker count
-- Defend action powered by stored gold, hidden until storage capacity exists and greyed out when no gold is stored
+- 7,200 energy collectibles distributed randomly throughout the 600 mazes
+- Energy storage capacity based on discovered marker count
+- Defend action powered by stored energy, hidden until storage capacity exists and greyed out when no energy is stored
 - Inset and full-screen 120-cell graph visualizers
 - Map filters for all, discovered-only, and undiscovered-only mazes
 - Current-cell focus modes, including a topology-correct 2D projection mode whose displayed nodes and edges map to the actual local 120-cell graph
@@ -46,7 +46,7 @@ The project is written as a small static web app. No server-side code is require
 | Move left/right | `A` / `D`, left/right arrows, mobile thumbstick, mobile left/right buttons, or mobile tilt controls |
 | Jump | `W`, `Space`, `Z`, or mobile Jump button; tap for a short hop, hold for full height |
 | Double jump | Press jump once while airborne; early release also shortens the double jump |
-| Defend | `X`, click inside the maze area, or mobile Defend button when gold storage is unlocked |
+| Defend | `X`, click inside the maze area, or mobile Defend button when energy storage is unlocked |
 | Kill/respawn | `K` or Kill player button |
 | Pause/resume game | `Esc` or Pause game button |
 | Full map | `M` or Full map button |
@@ -58,19 +58,19 @@ The project is written as a small static web app. No server-side code is require
 | Zoom map | Mouse wheel, trackpad scroll, or pinch |
 | Close full map | `Esc` or Close button |
 
-## Discovery, gold, and defend
+## Discovery, energy, and defend
 
 A maze is discovered only after the player touches that maze's circular marker. The marker glows after being touched.
 
-Gold capacity is calculated as:
+Energy capacity is calculated as:
 
 ```text
 round(discovered maze count / 50)
 ```
 
-Touching gold removes it from the maze. If storage has room, the gold is added to storage. If storage is full, the gold is still removed but is not added.
+Touching energy removes it from the maze. If storage has room, the energy is added to storage. If storage is full, the energy is still removed but is not added.
 
-The Defend button is hidden while gold capacity is `0`. Once capacity is greater than `0`, the button is visible; it is greyed out while stored gold is `0`. Defend spends all stored gold. If no gold is stored, defend does nothing. The defend area is a temporary transparent pentagon centered on the player with radius `stored gold / 3` maze squares. Enemies inside it are removed for 5 seconds, then respawn in the maze farthest from their birth maze. When an enemy respawns, 3 gold are added randomly to the respawn maze or one of its bordering mazes.
+The Defend button is hidden while energy capacity is `0`. Once capacity is greater than `0`, the button is visible; it is greyed out while stored energy is `0`. Defend spends all stored energy. If no energy is stored, defend does nothing. The defend area is a temporary transparent pentagon centered on the player with radius `stored energy / 3` maze squares. Enemies inside it are removed for 5 seconds, then respawn in the maze farthest from their birth maze. When an enemy respawns, 3 energy are added randomly to the respawn maze or one of its bordering mazes.
 
 
 ## Enemy movement
@@ -103,7 +103,7 @@ Progress is saved locally in the browser. You can also export your save as an en
 
 A new save system is used for this game and is not intended to be compatible with older saves from the previous project.
 
-The maze set, markers, starting gold, and starting enemies are generated from a numeric seed. Starting a new game with the same seed recreates the same initial world.
+The maze set, markers, starting energy, and starting enemies are generated from a numeric seed. Starting a new game with the same seed recreates the same initial world.
 
 ## Project structure
 
@@ -111,7 +111,7 @@ The maze set, markers, starting gold, and starting enemies are generated from a 
 index.html        App shell and HUD markup
 styles.css        Layout, HUD, mobile controls, and visual styling
 data.js           120-cell data and extracted 2D projection layout
-game.js           Main gameplay, rendering, physics, enemies, gold, and input
+game.js           Main gameplay, rendering, physics, enemies, energy, and input
 map-renderer.js   120-cell map and focus visualizers
 save.js           Local save, export, import, and save validation
 ```
