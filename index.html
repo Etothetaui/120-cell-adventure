@@ -4,13 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>120-cell-adventure</title>
-  <link rel="stylesheet" href="styles.css?classic=0.2.0-dev" />
+  <link rel="stylesheet" href="styles.css?classic=0.2.1-dev" />
 </head>
 <body>
   <div id="loading">Loading 120-cell-adventure…</div>
   <main id="app">
     <section id="stage" aria-label="Adventure stage">
-      <canvas id="maze" aria-label="Maze play area"></canvas>
+      <div id="mazeShell">
+        <canvas id="maze" aria-label="Maze play area"></canvas>
+        <section id="energyPanel" aria-label="Energy storage">
+          <div class="energy-row"><strong>Energy</strong><span id="energyCounter">0/0</span></div>
+          <div id="energyBar"><div id="energyFill"></div></div>
+        </section>
+      </div>
       <div id="mobileControls" aria-label="Mobile controls">
         <div id="mobileDirectionArea">
           <div id="stickBase" aria-label="Move left or right" role="application">
@@ -34,11 +40,6 @@
         <p class="subtitle">A 600-maze platform adventure on the graph of the 120-cell.</p>
       </div>
 
-      <section id="energyPanel" aria-label="Energy storage">
-        <div class="energy-row"><strong>Energy</strong><span id="energyCounter">0/0</span></div>
-        <div id="energyBar"><div id="energyFill"></div></div>
-      </section>
-
       <div id="mapShell">
         <canvas id="map" aria-label="Inset 120-cell map"></canvas>
         <div class="map-corner-controls" aria-label="Inset map controls">
@@ -54,7 +55,7 @@
         <button id="fullMapButton" type="button">Full map (M)</button>
         <button id="resetMapView" type="button">Reset map view</button>
         <button id="visitedMode" type="button">Map: all</button>
-        <button id="cellFocus" type="button">Focus: off</button>
+        <button id="cellFocus" type="button">Focus: 2D cell</button>
         <button id="pauseGame" type="button">Pause game (Esc)</button>
         <button id="killPlayerButton" type="button">Kill player (K)</button>
         <button id="reset" type="button">Reset progress</button>
@@ -74,7 +75,7 @@
       </div>
 
       <p class="help">Keyboard: A/D or left/right arrows move; W, Space, or Z jumps; tap for a short hop or hold for full height; one airborne double jump is available before landing; X or clicking in the maze defends using stored energy once energy capacity is unlocked; K kills/respawns the player; Esc pauses/resumes. Mobile: use Direction controls to cycle joystick, buttons, or tilt movement; then tap/hold Jump and use Defend once energy capacity is unlocked. Map: M toggles full map; V cycles all/discovered/undiscovered; C cycles focus modes. Drag maps to rotate or pan; wheel or pinch to zoom.</p>
-      <div class="meta-line"><span>0.2.0-dev</span></div>
+      <div class="meta-line"><span>0.2.1-dev</span></div>
     </aside>
   </main>
 
@@ -84,14 +85,14 @@
       <button type="button" data-map-action="pause">Pause map rotation</button>
       <button type="button" data-map-action="reset">Reset map view</button>
       <button type="button" data-map-action="visited">Map: all</button>
-      <button type="button" data-map-action="cell">Focus: off</button>
+      <button type="button" data-map-action="cell">Focus: 2D cell</button>
     </div>
     <button id="closeMap" type="button">Close</button>
   </div>
 
-  <script src="data.js?classic=0.2.0-dev"></script>
-  <script src="save.js?classic=0.2.0-dev"></script>
-  <script src="map-renderer.js?classic=0.2.0-dev"></script>
-  <script src="game.js?classic=0.2.0-dev"></script>
+  <script src="data.js?classic=0.2.1-dev"></script>
+  <script src="save.js?classic=0.2.1-dev"></script>
+  <script src="map-renderer.js?classic=0.2.1-dev"></script>
+  <script src="game.js?classic=0.2.1-dev"></script>
 </body>
 </html>

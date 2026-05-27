@@ -29,8 +29,10 @@ const MOVE_SPEED = 5.2;
 const AIR_ACCEL = 26;
 const GROUND_ACCEL = 40;
 const TRANSITION_MS = 260;
-const INVULNERABLE_MS = 3000;
-const DEFENSE_MS = 180;
+const INVULNERABLE_MS = 5000;
+const DEFENSE_MS = 1000;
+const DEFENSE_MAX_RADIUS = 4;
+const DEFENSE_ENERGY_PER_RADIUS = 3;
 const PHI = (1 + Math.sqrt(5)) / 2;
 const ENEMY_ROTATIONS = [-36, -24, -12, 12, 24, 36].map(d => d * Math.PI / 180);
 const ENERGY_COLOR = '#ffd84a';
@@ -427,6 +429,7 @@ let lastFrame = performance.now();
 let saveTimer = 0;
 let messageTimer = 0;
 let paused = false;
+let mapAutoPausedGame = false;
 let directionControlMode = 'joystick';
 let tiltListening = false;
 let tiltNeedsCalibration = false;
@@ -448,7 +451,7 @@ function newState(seed) {
     defense: null,
     transition: null,
     startedAt: Date.now(), transitions: 0, deaths: 0,
-    mapFilter: 'all', focusMode: 0,
+    mapFilter: 'all', focusMode: 2,
     rngCounter: 0,
     won: false
   };
@@ -459,7 +462,7 @@ function makeRuntimeRng(salt = 0) {
   return mulberry32((state.seed ^ 0xA37E120 ^ Math.imul(state.rngCounter + salt, 1103515245)) >>> 0);
 }
 function currentMaze() { return state.mazes[state.currentVertex]; }
-function energyCapacity() { return Math.round(state.discovered.size / 50); }
+function energyCapacity() { return Math.round(state.discovered.size / 10); }
 function displayDoors(maze, q) {
   return maze.doors.map(door => ({ ...door, displaySide: sideAfterRotation(door.side, q), displayCell: canonCellToDisplay(door.x, door.y, q) }));
 }
@@ -486,6 +489,26 @@ function resetDirectionalInput() {
   tiltSmoothX = 0;
   if (els.stickThumb) els.stickThumb.style.transform = 'translateX(0px)';
 }
+function clearGameplayInput() {
+  resetDirectionalInput();
+  input.jumpQueued = false;
+  input.jumpHeld = false;
+  input.jumpReleased = false;
+  input.defendQueued = false;
+  jumpKeysDown.clear();
+  jumpTouchActive = null;
+}
+function gameplayInputAllowed() { return !paused; }
+function queueGameplayInput(key) {
+  if (!gameplayInputAllowed()) { clearGameplayInput(); return false; }
+  input[key] = true;
+  return true;
+}
+function setGameplayInput(key, value) {
+  if (!gameplayInputAllowed()) { clearGameplayInput(); return false; }
+  input[key] = value;
+  return true;
+}
 function updateDirectionControlUI() {
   els.mobileControls.classList.toggle('direction-buttons', directionControlMode === 'buttons');
   els.mobileControls.classList.toggle('direction-tilt', directionControlMode === 'tilt');
@@ -501,6 +524,7 @@ function setDirectionControlMode(mode, options = {}) {
   if (options.save !== false) saveDirectionControlMode(mode);
 }
 function handleDeviceOrientation(event) {
+  if (!gameplayInputAllowed()) return;
   if (directionControlMode !== 'tilt') return;
   const gamma = Number(event.gamma);
   if (!Number.isFinite(gamma)) return;
@@ -623,6 +647,23 @@ function applySave(payload) {
   syncSeedInput(); updateHUD(); setMessage('Save imported.');
 }
 function saveNow() { if (state) saveLocal(stateForSave()); }
+function applySettingsFromPreviousState(next, previous = state) {
+  if (!previous) return next;
+  next.mapFilter = previous.mapFilter;
+  next.focusMode = previous.focusMode;
+  return next;
+}
+function replaceStateForNewGame(seed, message) {
+  clearLocal();
+  state = applySettingsFromPreviousState(newState(seed));
+  paused = false;
+  mapAutoPausedGame = false;
+  clearGameplayInput();
+  togglePauseGame(false);
+  syncSeedInput();
+  setMessage(message);
+  saveNow();
+}
 function syncSeedInput() { els.seedInput.value = String(state.seed >>> 0); }
 
 function canvasMetrics(canvas) {
@@ -1111,31 +1152,52 @@ function killPlayer(force = false) {
   state.entryClosed = false;
   state.transition = null;
   state.player.invulnerableUntil = performance.now() + INVULNERABLE_MS;
+  createDefenseBubble(state.player.x, state.player.y, DEFENSE_MAX_RADIUS);
   setMessage('Respawned.', 2);
   saveNow();
 }
 
-function defend() {
-  if (state.transition || state.energyStored <= 0) return;
-  const g = state.energyStored;
-  state.energyStored = 0;
-  const defense = { x: state.player.x, y: state.player.y, angle: state.player.angle + 36 * Math.PI / 180, radius: g / 3, until: performance.now() + DEFENSE_MS };
-  state.defense = defense;
+function createDefenseBubble(x, y, radius, angle = state.player.angle + 36 * Math.PI / 180) {
+  const canonical = displayPointToCanon(x, y, state.orientation);
+  state.defense = {
+    vertex: state.currentVertex,
+    orientation: state.orientation,
+    x, y,
+    canonicalX: canonical.x,
+    canonicalY: canonical.y,
+    angle,
+    radius: Math.min(radius, DEFENSE_MAX_RADIUS),
+    until: performance.now() + DEFENSE_MS
+  };
+  applyDefenseBubbleToEnemies();
+}
+function applyDefenseBubbleToEnemies() {
+  const defense = state.defense;
+  if (!defense) return;
   const vertices = regularPolygon(defense.x, defense.y, defense.radius, 5, defense.angle);
   for (const e of state.enemies) {
     if (e.removedUntil) continue;
-    const p = enemyWorldPositionForDefense(e);
+    const p = enemyWorldPositionForDefense(e, defense);
     if (!p) continue;
     if (pointInPolygon(p.x, p.y, vertices)) e.removedUntil = performance.now() + 5000;
   }
 }
-function enemyWorldPositionForDefense(e) {
-  if (e.currentVertex === state.currentVertex) return canonPointToDisplay(e.x + 0.5, e.y + 0.5, state.orientation);
-  for (const d of displayDoors(currentMaze(), state.orientation)) {
+function defend() {
+  if (state.transition || state.energyStored <= 0) return;
+  const energySpent = Math.min(state.energyStored, DEFENSE_MAX_RADIUS * DEFENSE_ENERGY_PER_RADIUS);
+  state.energyStored -= energySpent;
+  createDefenseBubble(state.player.x, state.player.y, energySpent / DEFENSE_ENERGY_PER_RADIUS);
+}
+function enemyWorldPositionForDefense(e, defense = state.defense) {
+  const defenseVertex = defense?.vertex ?? state.currentVertex;
+  const defenseOrientation = defense?.orientation ?? state.orientation;
+  const defenseMaze = state.mazes[defenseVertex];
+  if (e.currentVertex === defenseVertex) return canonPointToDisplay(e.x + 0.5, e.y + 0.5, defenseOrientation);
+  for (const d of displayDoors(defenseMaze, defenseOrientation)) {
     if (d.destination_vertex_id !== e.currentVertex) continue;
     const side = d.displaySide;
     const destMaze = state.mazes[e.currentVertex];
-    const back = returnDoorInMaze(destMaze, state.currentVertex);
+    const back = returnDoorInMaze(destMaze, defenseVertex);
     const desired = OPPOSITE[side];
     const q = orientationForDoorAsSide(back.side, desired);
     const p = canonPointToDisplay(e.x + 0.5, e.y + 0.5, q);
@@ -1163,7 +1225,7 @@ function pointInPolygon(x, y, pts) {
 
 function update(dt) {
   if (messageTimer > 0) { messageTimer -= dt; if (messageTimer <= 0) els.message.textContent = ''; }
-  if (paused) return;
+  if (paused) { clearGameplayInput(); return; }
   state.enemyTimer += dt;
   while (state.enemyTimer >= 1) { state.enemyTimer -= 1; moveEnemiesStep(); }
   if (state.transition) {
@@ -1175,6 +1237,7 @@ function update(dt) {
     checkEnemyCollision();
   }
   if (state.defense && performance.now() > state.defense.until) state.defense = null;
+  else applyDefenseBubbleToEnemies();
   saveTimer += dt;
   if (saveTimer > 2) { saveTimer = 0; saveNow(); }
 }
@@ -1274,10 +1337,32 @@ function drawPlayer(ctx, cellPx, alpha = 1) {
   ctx.strokeStyle = 'rgba(0,0,0,0.78)'; ctx.lineWidth = Math.max(1, cellPx * 0.04); ctx.stroke();
   ctx.restore();
 }
+function defenseDisplayPosition(defense) {
+  if (!defense) return null;
+  const cx = defense.canonicalX ?? displayPointToCanon(defense.x, defense.y, defense.orientation ?? state.orientation).x;
+  const cy = defense.canonicalY ?? displayPointToCanon(defense.x, defense.y, defense.orientation ?? state.orientation).y;
+  if (defense.vertex === state.currentVertex) {
+    return { ...canonPointToDisplay(cx, cy, state.orientation), angle: defense.angle };
+  }
+  for (const d of displayDoors(currentMaze(), state.orientation)) {
+    if (d.destination_vertex_id !== defense.vertex) continue;
+    const side = d.displaySide;
+    const destMaze = state.mazes[defense.vertex];
+    const back = returnDoorInMaze(destMaze, state.currentVertex);
+    const desired = OPPOSITE[side];
+    const q = orientationForDoorAsSide(back.side, desired);
+    const p = canonPointToDisplay(cx, cy, q);
+    const off = side === 'N' ? { x: 0, y: -SIZE } : side === 'S' ? { x: 0, y: SIZE } : side === 'E' ? { x: SIZE, y: 0 } : { x: -SIZE, y: 0 };
+    return { x: p.x + off.x, y: p.y + off.y, angle: defense.angle };
+  }
+  return null;
+}
 function drawDefense(ctx, cellPx) {
   if (!state.defense) return;
   const d = state.defense;
-  ctx.save(); ctx.translate(d.x * cellPx, d.y * cellPx); ctx.rotate(d.angle);
+  const display = defenseDisplayPosition(d);
+  if (!display) return;
+  ctx.save(); ctx.translate(display.x * cellPx, display.y * cellPx); ctx.rotate(display.angle);
   const r = d.radius * cellPx;
   ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.strokeStyle = 'rgba(255,255,255,0.60)'; ctx.lineWidth = Math.max(1.5, cellPx * 0.035);
   ctx.beginPath();
@@ -1338,8 +1423,9 @@ function drawScene() {
   }
   drawMazeBoard(ctx, currentMaze(), state.orientation, cellPx, 0, 0, { current: true, items: true });
   drawDefense(ctx, cellPx);
-  const blink = performance.now() < state.player.invulnerableUntil && Math.floor(performance.now() / 500) % 2 === 0;
-  if (!blink) drawPlayer(ctx, cellPx);
+  const invulnerable = performance.now() < state.player.invulnerableUntil;
+  const flashDim = invulnerable && Math.floor(performance.now() / 500) % 2 === 0;
+  drawPlayer(ctx, cellPx, flashDim ? 0.5 : 1);
   ctx.restore();
 
   ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1;
@@ -1405,6 +1491,7 @@ function updateDefendControlState(cap = energyCapacityClamped()) {
 }
 function togglePauseGame(force) {
   paused = force ?? !paused;
+  clearGameplayInput();
   els.pauseGame.textContent = paused ? 'Resume game (Esc)' : 'Pause game (Esc)';
 }
 
@@ -1436,6 +1523,17 @@ function setupInput() {
     const k = e.key.toLowerCase();
     if (isTextEntryTarget(e.target)) return;
     if (['arrowleft','arrowright',' ','arrowup','w','z','a','d','x','m','v','c','escape','k'].includes(k)) e.preventDefault();
+
+    if (k === 'm' && !e.repeat) { toggleFullMap(); return; }
+    if (k === 'v' && !e.repeat) { cycleMapFilter(); return; }
+    if (k === 'c' && !e.repeat) { cycleFocus(); return; }
+    if (k === 'escape' && !e.repeat) {
+      if (!els.mapOverlay.classList.contains('hidden')) closeFullMap();
+      else togglePauseGame();
+      return;
+    }
+
+    if (!gameplayInputAllowed()) { clearGameplayInput(); return; }
     if (k === 'a' || k === 'arrowleft') input.left = true;
     if (k === 'd' || k === 'arrowright') input.right = true;
     if (JUMP_KEYS.has(k)) {
@@ -1445,16 +1543,10 @@ function setupInput() {
     }
     if (k === 'x') { if (!e.repeat && state.energyStored > 0) input.defendQueued = true; }
     if (k === 'k') { if (!e.repeat) killPlayer(true); }
-    if (k === 'm' && !e.repeat) toggleFullMap();
-    if (k === 'v' && !e.repeat) cycleMapFilter();
-    if (k === 'c' && !e.repeat) cycleFocus();
-    if (k === 'escape' && !e.repeat) {
-      if (!els.mapOverlay.classList.contains('hidden')) closeFullMap();
-      else togglePauseGame();
-    }
   });
   window.addEventListener('keyup', (e) => {
     const k = e.key.toLowerCase();
+    if (!gameplayInputAllowed()) { clearGameplayInput(); return; }
     if (k === 'a' || k === 'arrowleft') input.left = false;
     if (k === 'd' || k === 'arrowright') input.right = false;
     if (JUMP_KEYS.has(k)) {
@@ -1463,10 +1555,12 @@ function setupInput() {
     }
   });
   els.maze.addEventListener('pointerdown', (e) => {
+    if (!gameplayInputAllowed()) { clearGameplayInput(); return; }
     if (e.pointerType === 'mouse' && e.button === 0 && state.energyStored > 0) input.defendQueued = true;
   });
   els.mobileJump.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    if (!gameplayInputAllowed()) { clearGameplayInput(); return; }
     jumpTouchActive = e.pointerId;
     els.mobileJump.setPointerCapture?.(e.pointerId);
     input.jumpQueued = true;
@@ -1479,7 +1573,11 @@ function setupInput() {
   };
   els.mobileJump.addEventListener('pointerup', endJumpTouch);
   els.mobileJump.addEventListener('pointercancel', endJumpTouch);
-  els.mobileDefend.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!els.mobileDefend.disabled && state.energyStored > 0) input.defendQueued = true; });
+  els.mobileDefend.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (!gameplayInputAllowed()) { clearGameplayInput(); return; }
+    if (!els.mobileDefend.disabled && state.energyStored > 0) input.defendQueued = true;
+  });
   els.directionControls.addEventListener('click', cycleDirectionControls);
   setupMoveButton(els.mobileLeft, 'left');
   setupMoveButton(els.mobileRight, 'right');
@@ -1490,6 +1588,7 @@ function setupMoveButton(button, inputKey) {
   const activePointers = new Set();
   const press = (e) => {
     e.preventDefault();
+    if (!gameplayInputAllowed()) { clearGameplayInput(); return; }
     activePointers.add(e.pointerId);
     button.setPointerCapture?.(e.pointerId);
     input[inputKey] = true;
@@ -1497,7 +1596,7 @@ function setupMoveButton(button, inputKey) {
   const release = (e) => {
     if (!activePointers.has(e.pointerId)) return;
     activePointers.delete(e.pointerId);
-    input[inputKey] = activePointers.size > 0;
+    input[inputKey] = activePointers.size > 0 && gameplayInputAllowed();
   };
   button.addEventListener('pointerdown', press);
   button.addEventListener('pointerup', release);
@@ -1508,6 +1607,7 @@ function setupStick() {
   const base = els.stickBase, thumb = els.stickThumb;
   let active = null;
   function setFromEvent(e) {
+    if (!gameplayInputAllowed()) { active = null; clearGameplayInput(); return; }
     const rect = base.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const max = rect.width * 0.32;
@@ -1515,17 +1615,42 @@ function setupStick() {
     input.joystickX = dx / max;
     thumb.style.transform = `translateX(${dx}px)`;
   }
-  base.addEventListener('pointerdown', e => { e.preventDefault(); active = e.pointerId; base.setPointerCapture?.(active); setFromEvent(e); });
+  base.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (!gameplayInputAllowed()) { clearGameplayInput(); return; }
+    active = e.pointerId;
+    base.setPointerCapture?.(active);
+    setFromEvent(e);
+  });
   base.addEventListener('pointermove', e => { if (e.pointerId === active) setFromEvent(e); });
   const end = e => { if (e.pointerId === active) { active = null; input.joystickX = 0; thumb.style.transform = 'translateX(0px)'; } };
   base.addEventListener('pointerup', end); base.addEventListener('pointercancel', end);
 }
 
-function toggleFullMap() { els.mapOverlay.classList.toggle('hidden'); }
-function closeFullMap() { els.mapOverlay.classList.add('hidden'); }
+function openFullMap() {
+  if (!els.mapOverlay.classList.contains('hidden')) return;
+  mapAutoPausedGame = false;
+  if (!paused) {
+    mapAutoPausedGame = true;
+    togglePauseGame(true);
+  }
+  els.mapOverlay.classList.remove('hidden');
+}
+function closeFullMap() {
+  if (els.mapOverlay.classList.contains('hidden')) return;
+  els.mapOverlay.classList.add('hidden');
+  if (mapAutoPausedGame) {
+    mapAutoPausedGame = false;
+    togglePauseGame(false);
+  }
+}
+function toggleFullMap() {
+  if (els.mapOverlay.classList.contains('hidden')) openFullMap();
+  else closeFullMap();
+}
 function bindUI() {
   els.pauseGame.addEventListener('click', () => togglePauseGame());
-  els.killPlayerButton.addEventListener('click', () => killPlayer(true));
+  els.killPlayerButton.addEventListener('click', () => { if (gameplayInputAllowed()) killPlayer(true); });
   els.fullMapButton.addEventListener('click', toggleFullMap);
   els.closeMap.addEventListener('click', closeFullMap);
   els.resetMapView.addEventListener('click', () => mapRenderer.resetView());
@@ -1538,12 +1663,12 @@ function bindUI() {
     if (action === 'visited') cycleMapFilter();
     if (action === 'cell') cycleFocus();
   }));
-  els.reset.addEventListener('click', () => { if (confirm('Reset progress for this seed?')) { clearLocal(); state = newState(state.seed); paused = false; togglePauseGame(false); syncSeedInput(); setMessage('Progress reset.'); } });
-  els.newMazeSet.addEventListener('click', () => { if (confirm('Start a new game with new mazes?')) { clearLocal(); state = newState(randomMazeSeed()); paused = false; togglePauseGame(false); syncSeedInput(); setMessage('New game started.'); } });
+  els.reset.addEventListener('click', () => { if (confirm('Reset progress for this seed?')) replaceStateForNewGame(state.seed, 'Progress reset.'); });
+  els.newMazeSet.addEventListener('click', () => { if (confirm('Start a new game with new mazes?')) replaceStateForNewGame(randomMazeSeed(), 'New game started.'); });
   els.seededNewGame.addEventListener('click', () => {
     const seed = normalizeSeed(els.seedInput.value);
     if (seed == null) { setMessage('Enter a valid non-negative numeric seed.'); return; }
-    if (confirm(`Start a new game from seed ${seed}?`)) { clearLocal(); state = newState(seed); paused = false; togglePauseGame(false); syncSeedInput(); setMessage('Seeded game started.'); }
+    if (confirm(`Start a new game from seed ${seed}?`)) replaceStateForNewGame(seed, 'Seeded game started.');
   });
   els.exportSave.addEventListener('click', () => {
     const text = encodeSave(stateForSave());

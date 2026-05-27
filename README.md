@@ -2,7 +2,7 @@
 
 **120-cell-adventure** is a browser-based platform adventure built on the graph structure of the 120-cell. The game contains 600 interconnected vertex mazes, with each maze connected to neighboring mazes through exits that follow the 4-regular graph of the 120-cell.
 
-Current version: **0.2.0-dev**
+Current version: **0.2.1-dev**
 
 ## Play
 
@@ -27,17 +27,17 @@ The project is written as a small static web app. No server-side code is require
 - Enemy movement alternates probabilistically between the original random movement and targeted pursuit based on discovered-maze percentage
 - Targeted enemy movement uses shortest maze distance toward the player in the same maze, or toward the best shortest-route exit when outside the player's maze
 - Enemy travel through maze exits
-- Death and respawn at the last touched marker, or the original start position if no marker has been touched
+- Death and respawn at the last touched marker, or the original start position if no marker has been touched, with 5 seconds of invulnerability and a 1-second stationary defense bubble at the respawn point
 - 7,200 energy collectibles distributed randomly throughout the 600 mazes
-- Energy storage capacity based on discovered marker count
+- Energy storage capacity based on discovered marker count, calculated as `round(discovered maze count / 10)`
 - Defend action powered by stored energy, hidden until storage capacity exists and greyed out when no energy is stored
-- Inset and full-screen 120-cell graph visualizers
+- Inset and full-screen 120-cell graph visualizers; opening the full-screen map temporarily pauses the game unless it was already manually paused
 - Map filters for all, discovered-only, and undiscovered-only mazes
-- Current-cell focus modes, including a topology-correct 2D projection mode whose displayed nodes and edges map to the actual local 120-cell graph
+- Current-cell focus modes, defaulting to the topology-correct 2D projection mode whose displayed nodes and edges map to the actual local 120-cell graph
 - Local browser save support
 - Save export and import
 - Seeded new games
-- Game pause overlay and manual Kill player respawn control
+- Game pause overlay, paused gameplay-input discard, and manual Kill player respawn control
 
 ## Controls
 
@@ -49,7 +49,7 @@ The project is written as a small static web app. No server-side code is require
 | Defend | `X`, click inside the maze area, or mobile Defend button when energy storage is unlocked |
 | Kill/respawn | `K` or Kill player button |
 | Pause/resume game | `Esc` or Pause game button |
-| Full map | `M` or Full map button |
+| Full map | `M` or Full map button; opening it auto-pauses only when the map caused the pause |
 | Map filter | `V` or map filter button: all / discovered / undiscovered |
 | Current cell focus | `C` or focus button: off / 4D cell / 2D cell |
 | Pause/resume map rotation | Pause/resume button on the map |
@@ -58,6 +58,8 @@ The project is written as a small static web app. No server-side code is require
 | Zoom map | Mouse wheel, trackpad scroll, or pinch |
 | Close full map | `Esc` or Close button |
 
+Gameplay inputs made while the game is paused are discarded instead of queued. Pause/resume and map/UI controls remain usable while paused.
+
 ## Discovery, energy, and defend
 
 A maze is discovered only after the player touches that maze's circular marker. The marker glows after being touched.
@@ -65,12 +67,16 @@ A maze is discovered only after the player touches that maze's circular marker. 
 Energy capacity is calculated as:
 
 ```text
-round(discovered maze count / 50)
+round(discovered maze count / 10)
 ```
 
 Touching energy removes it from the maze. If storage has room, the energy is added to storage. If storage is full, the energy is still removed but is not added.
 
-The Defend button is hidden while energy capacity is `0`. Once capacity is greater than `0`, the button is visible; it is greyed out while stored energy is `0`. Defend spends all stored energy. If no energy is stored, defend does nothing. The defend area is a temporary transparent pentagon centered on the player with radius `stored energy / 3` maze squares. Enemies inside it are removed for 5 seconds, then respawn in the maze farthest from their birth maze. When an enemy respawns, 3 energy are added randomly to the respawn maze or one of its bordering mazes.
+The energy meter is displayed as a permanent overlay at the top-left of the maze view.
+
+The Defend button is hidden while energy capacity is `0`. Once capacity is greater than `0`, the button is visible; it is greyed out while stored energy is `0`. If no energy is stored, defend does nothing. Defend creates a stationary transparent pentagon centered where it was triggered and lasting 1 second. Its radius is `energy spent / 3` maze squares, capped at the shared maximum defense radius of 4 maze squares. Because of that cap, one manual defense spends at most 12 energy and leaves any remaining stored energy intact. Enemies inside the bubble are removed for 5 seconds, then respawn in the maze farthest from their birth maze. When an enemy respawns, 3 energy are added randomly to the respawn maze or one of its bordering mazes.
+
+After death, the player respawns with 5 seconds of invulnerability. The invulnerability flash dims the player to 50% opacity instead of making the player fully invisible. Respawning also creates a 1-second stationary defense bubble centered at the respawn location, using the shared 4-maze-square maximum defense radius.
 
 
 ## Enemy movement
@@ -103,7 +109,7 @@ Progress is saved locally in the browser. You can also export your save as an en
 
 A new save system is used for this game and is not intended to be compatible with older saves from the previous project.
 
-The maze set, markers, starting energy, and starting enemies are generated from a numeric seed. Starting a new game with the same seed recreates the same initial world.
+The maze set, markers, starting energy, and starting enemies are generated from a numeric seed. Starting a new game with the same seed recreates the same initial world. Starting a new game or resetting progress preserves user settings such as map focus, map filter, map view state, and mobile direction-control mode.
 
 ## Project structure
 

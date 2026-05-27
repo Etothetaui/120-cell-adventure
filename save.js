@@ -1,5 +1,5 @@
 const GAME_NAME = '120-cell-adventure';
-const GAME_VERSION = '0.2.0-dev';
+const GAME_VERSION = '0.2.1-dev';
 const SAVE_SCHEMA = 1;
 const STORAGE_KEY = '120-cell-adventure.save.v1';
 
