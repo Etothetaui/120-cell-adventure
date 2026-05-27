@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>120-cell-adventure</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?classic=0.1.0-dev" />
 </head>
 <body>
   <div id="loading">Loading 120-cell-adventure…</div>
@@ -48,6 +48,8 @@
         <button id="resetMapView" type="button">Reset map view</button>
         <button id="visitedMode" type="button">Map: all</button>
         <button id="cellFocus" type="button">Focus: off</button>
+        <button id="pauseGame" type="button">Pause game (Esc)</button>
+        <button id="killPlayerButton" type="button">Kill player (K)</button>
         <button id="reset" type="button">Reset progress</button>
         <button id="newMazeSet" type="button">New game: new mazes</button>
         <div class="seed-controls">
@@ -64,7 +66,7 @@
         </div>
       </div>
 
-      <p class="help">Keyboard: A/D or left/right arrows move; W, Space, or Z jumps; one airborne double jump is available before landing; X or clicking in the maze defends using stored gold. Mobile: drag the left thumbstick to move, then use Jump and Defend. Map: M toggles full map; V cycles all/discovered/undiscovered; C cycles focus modes. Drag maps to rotate or pan; wheel or pinch to zoom.</p>
+      <p class="help">Keyboard: A/D or left/right arrows move; W, Space, or Z jumps; tap for a short hop or hold for full height; one airborne double jump is available before landing; X or clicking in the maze defends using stored gold once gold capacity is unlocked; K kills/respawns the player; Esc pauses/resumes. Mobile: drag the left thumbstick to move, then tap/hold Jump and use Defend once gold capacity is unlocked. Map: M toggles full map; V cycles all/discovered/undiscovered; C cycles focus modes. Drag maps to rotate or pan; wheel or pinch to zoom.</p>
       <div class="meta-line"><span>0.1.0-dev</span></div>
     </aside>
   </main>
@@ -80,6 +82,9 @@
     <button id="closeMap" type="button">Close</button>
   </div>
 
-  <script type="module" src="game.js"></script>
+  <script src="data.js?classic=0.1.0-dev"></script>
+  <script src="save.js?classic=0.1.0-dev"></script>
+  <script src="map-renderer.js?classic=0.1.0-dev"></script>
+  <script src="game.js?classic=0.1.0-dev"></script>
 </body>
 </html>

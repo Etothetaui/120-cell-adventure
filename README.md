@@ -13,36 +13,40 @@ The project is written as a small static web app. No server-side code is require
 ## Features
 
 - 600 deterministic vertex mazes connected by the 120-cell graph
-- Platformer movement with gravity, left/right motion, jump, and one airborne double jump
+- Phi-Spur Live Contact Backtracker maze generation with seeded DFS and live loop creation
+- Platformer movement with gravity, left/right motion, variable-height jumps up to 2.62 squares, one airborne double jump, and anti-tunneling collision guards
 - Pentagon player body with rotation and side-settling behavior
 - Centered exits on every maze side
 - Room orientation that places the entry door at the bottom of the current room
 - Temporarily closed bottom entry exit until the player leaves the entry square
-- Partial border-maze visibility around the current maze
+- Partial border-maze visibility around the current maze, clipped by a circular viewport expanded by `(√2 / 4)` of one grid square
 - Quick animated room transitions with input locked during the transition
 - One circular discovery marker in every maze
 - Marker-based discovery and win condition: discover all 600 markers to win
-- One enemy spawned for every maze, with global one-square-per-second random-walk movement
+- One triangular enemy spawned for every maze, with global one-square-per-second random-walk movement and fixed inverse birth-maze color
 - Enemy travel through maze exits
 - Death and respawn at the last touched marker, or the original start position if no marker has been touched
 - 7,200 gold collectibles distributed randomly throughout the 600 mazes
 - Gold storage capacity based on discovered marker count
-- Defend action powered by stored gold
+- Defend action powered by stored gold, hidden until storage capacity exists and greyed out when no gold is stored
 - Inset and full-screen 120-cell graph visualizers
 - Map filters for all, discovered-only, and undiscovered-only mazes
-- Current-cell focus modes, including a 2D projection mode
+- Current-cell focus modes, including a topology-correct 2D projection mode whose displayed nodes and edges map to the actual local 120-cell graph
 - Local browser save support
 - Save export and import
 - Seeded new games
+- Game pause overlay and manual Kill player respawn control
 
 ## Controls
 
 | Action | Keyboard / Mouse / Touch |
 |---|---|
 | Move left/right | `A` / `D`, left/right arrows, or mobile thumbstick |
-| Jump | `W`, `Space`, `Z`, or mobile Jump button |
-| Double jump | Press jump once while airborne |
-| Defend | `X`, click inside the maze area, or mobile Defend button |
+| Jump | `W`, `Space`, `Z`, or mobile Jump button; tap for a short hop, hold for full height |
+| Double jump | Press jump once while airborne; early release also shortens the double jump |
+| Defend | `X`, click inside the maze area, or mobile Defend button when gold storage is unlocked |
+| Kill/respawn | `K` or Kill player button |
+| Pause/resume game | `Esc` or Pause game button |
 | Full map | `M` or Full map button |
 | Map filter | `V` or map filter button: all / discovered / undiscovered |
 | Current cell focus | `C` or focus button: off / 4D cell / 2D cell |
@@ -64,7 +68,18 @@ round(discovered maze count / 50)
 
 Touching gold removes it from the maze. If storage has room, the gold is added to storage. If storage is full, the gold is still removed but is not added.
 
-Defend spends all stored gold. If no gold is stored, defend does nothing. The defend area is a temporary transparent pentagon centered on the player with radius `stored gold / 3` maze squares. Enemies inside it are removed for 5 seconds, then respawn in the maze farthest from their birth maze. When an enemy respawns, 3 gold are added randomly to the respawn maze or one of its bordering mazes.
+The Defend button is hidden while gold capacity is `0`. Once capacity is greater than `0`, the button is visible; it is greyed out while stored gold is `0`. Defend spends all stored gold. If no gold is stored, defend does nothing. The defend area is a temporary transparent pentagon centered on the player with radius `stored gold / 3` maze squares. Enemies inside it are removed for 5 seconds, then respawn in the maze farthest from their birth maze. When an enemy respawns, 3 gold are added randomly to the respawn maze or one of its bordering mazes.
+
+## Maze generation
+
+Each 15×15 room is generated with a Phi-Spur Live Contact Backtracker. The generator starts as a seeded depth-first recursive backtracker. When the active DFS path reaches a dead end, it checks closed-wall contacts to already-carved cells. A contact opens only when the loop it would create is large enough compared with the spur being removed:
+
+```text
+cycle length >= ceil(spur length ^ phi)
+phi = (1 + sqrt(5)) / 2
+```
+
+When multiple contacts qualify, the implementation chooses the valid contact with the largest cycle length and opens at most one contact for that dead-end event. This creates deterministic looped mazes without a loop probability and without a post-generation braid pass.
 
 ## Saves and seeds
 

@@ -1,7 +1,7 @@
-export const GAME_NAME = '120-cell-adventure';
-export const GAME_VERSION = '0.1.0-dev';
-export const SAVE_SCHEMA = 1;
-export const STORAGE_KEY = '120-cell-adventure.save.v1';
+const GAME_NAME = '120-cell-adventure';
+const GAME_VERSION = '0.1.0-dev';
+const SAVE_SCHEMA = 1;
+const STORAGE_KEY = '120-cell-adventure.save.v1';
 
 function fnv1a(text) {
   let hash = 0x811c9dc5;
@@ -29,7 +29,7 @@ function fromBase64(text) {
   return new TextDecoder().decode(bytes);
 }
 
-export function encodeSave(payload) {
+function encodeSave(payload) {
   const body = JSON.stringify({
     game: GAME_NAME,
     version: GAME_VERSION,
@@ -41,7 +41,7 @@ export function encodeSave(payload) {
   return `${GAME_NAME}:${SAVE_SCHEMA}:${checksum}:${toBase64(body)}`;
 }
 
-export function decodeSave(text) {
+function decodeSave(text) {
   const raw = String(text || '').trim();
   const parts = raw.split(':');
   if (parts.length !== 4 || parts[0] !== GAME_NAME) throw new Error('This is not a 120-cell-adventure save string.');
@@ -55,7 +55,7 @@ export function decodeSave(text) {
   return parsed.payload;
 }
 
-export function saveLocal(payload) {
+function saveLocal(payload) {
   try {
     localStorage.setItem(STORAGE_KEY, encodeSave(payload));
     return true;
@@ -65,7 +65,7 @@ export function saveLocal(payload) {
   }
 }
 
-export function loadLocal() {
+function loadLocal() {
   try {
     const text = localStorage.getItem(STORAGE_KEY);
     if (!text) return null;
@@ -76,6 +76,8 @@ export function loadLocal() {
   }
 }
 
-export function clearLocal() {
+function clearLocal() {
   try { localStorage.removeItem(STORAGE_KEY); } catch {}
 }
+
+window.AdventureSave = { GAME_NAME, GAME_VERSION, SAVE_SCHEMA, STORAGE_KEY, encodeSave, decodeSave, saveLocal, loadLocal, clearLocal };
