@@ -34,6 +34,12 @@ const PHI = (1 + Math.sqrt(5)) / 2;
 const ENEMY_ROTATIONS = [-36, -24, -12, 12, 24, 36].map(d => d * Math.PI / 180);
 const GOLD_COLOR = '#ffd84a';
 const TAU = Math.PI * 2;
+const DIRECTION_CONTROL_STORAGE_KEY = '120-cell-adventure-direction-controls';
+const DIRECTION_CONTROL_MODES = ['joystick', 'buttons', 'tilt'];
+const DIRECTION_CONTROL_LABELS = { joystick: 'Joystick', buttons: 'Buttons', tilt: 'Tilt' };
+const TILT_FULL_DEGREES = 22;
+const TILT_DEADZONE = 0.08;
+const TILT_SMOOTHING = 0.22;
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -45,7 +51,9 @@ const els = {
   exportSave: $('exportSave'), saveExport: $('saveExport'), copySave: $('copySave'),
   saveImport: $('saveImport'), importSave: $('importSave'), status: $('status'), message: $('message'),
   goldCounter: $('goldCounter'), goldBar: $('goldBar'), goldFill: $('goldFill'),
-  stickBase: $('stickBase'), stickThumb: $('stickThumb'), mobileJump: $('mobileJump'), mobileDefend: $('mobileDefend')
+  mobileControls: $('mobileControls'), mobileDirectionArea: $('mobileDirectionArea'), directionControls: $('directionControls'),
+  stickBase: $('stickBase'), stickThumb: $('stickThumb'), mobileMoveButtons: $('mobileMoveButtons'),
+  mobileLeft: $('mobileLeft'), mobileRight: $('mobileRight'), mobileJump: $('mobileJump'), mobileDefend: $('mobileDefend')
 };
 const ctx = els.maze.getContext('2d');
 
@@ -334,13 +342,18 @@ function computeFarthestVertices() {
 const FARTHEST_VERTEX = computeFarthestVertices();
 
 let state;
-const input = { left: false, right: false, joystickX: 0, jumpQueued: false, jumpHeld: false, jumpReleased: false, defendQueued: false };
+const input = { left: false, right: false, joystickX: 0, tiltX: 0, jumpQueued: false, jumpHeld: false, jumpReleased: false, defendQueued: false };
 const jumpKeysDown = new Set();
 let jumpTouchActive = null;
 let lastFrame = performance.now();
 let saveTimer = 0;
 let messageTimer = 0;
 let paused = false;
+let directionControlMode = 'joystick';
+let tiltListening = false;
+let tiltNeedsCalibration = false;
+let tiltNeutralGamma = 0;
+let tiltSmoothX = 0;
 
 function newState(seed) {
   const mazes = generateMazeData(seed);
@@ -373,6 +386,102 @@ function displayDoors(maze, q) {
 function doorForDisplaySide(maze, q, side) { return displayDoors(maze, q).find(d => d.displaySide === side); }
 function returnDoorInMaze(maze, fromVertex) { return maze.doors.find(d => d.destination_vertex_id === fromVertex); }
 function setMessage(text, seconds = 2.2) { els.message.textContent = text || ''; messageTimer = text ? seconds : 0; }
+
+function loadDirectionControlMode() {
+  try {
+    const value = localStorage.getItem(DIRECTION_CONTROL_STORAGE_KEY);
+    return DIRECTION_CONTROL_MODES.includes(value) ? value : 'joystick';
+  } catch {
+    return 'joystick';
+  }
+}
+function saveDirectionControlMode(mode) {
+  try { localStorage.setItem(DIRECTION_CONTROL_STORAGE_KEY, mode); } catch {}
+}
+function resetDirectionalInput() {
+  input.left = false;
+  input.right = false;
+  input.joystickX = 0;
+  input.tiltX = 0;
+  tiltSmoothX = 0;
+  if (els.stickThumb) els.stickThumb.style.transform = 'translateX(0px)';
+}
+function updateDirectionControlUI() {
+  els.mobileControls.classList.toggle('direction-buttons', directionControlMode === 'buttons');
+  els.mobileControls.classList.toggle('direction-tilt', directionControlMode === 'tilt');
+  els.directionControls.textContent = `Direction controls: ${DIRECTION_CONTROL_LABELS[directionControlMode]}`;
+  els.directionControls.setAttribute('aria-pressed', directionControlMode !== 'joystick' ? 'true' : 'false');
+}
+function setDirectionControlMode(mode, options = {}) {
+  if (!DIRECTION_CONTROL_MODES.includes(mode)) mode = 'joystick';
+  directionControlMode = mode;
+  resetDirectionalInput();
+  if (mode === 'tilt') tiltNeedsCalibration = true;
+  updateDirectionControlUI();
+  if (options.save !== false) saveDirectionControlMode(mode);
+}
+function handleDeviceOrientation(event) {
+  if (directionControlMode !== 'tilt') return;
+  const gamma = Number(event.gamma);
+  if (!Number.isFinite(gamma)) return;
+  if (tiltNeedsCalibration) {
+    tiltNeutralGamma = gamma;
+    tiltNeedsCalibration = false;
+    input.tiltX = 0;
+    tiltSmoothX = 0;
+    return;
+  }
+  const raw = Math.max(-TILT_FULL_DEGREES, Math.min(TILT_FULL_DEGREES, gamma - tiltNeutralGamma)) / TILT_FULL_DEGREES;
+  const magnitude = Math.abs(raw);
+  const shaped = magnitude <= TILT_DEADZONE ? 0 : Math.sign(raw) * ((magnitude - TILT_DEADZONE) / (1 - TILT_DEADZONE));
+  tiltSmoothX += (shaped - tiltSmoothX) * TILT_SMOOTHING;
+  input.tiltX = Math.max(-1, Math.min(1, tiltSmoothX));
+}
+function startTiltListening() {
+  if (tiltListening) return true;
+  if (!('DeviceOrientationEvent' in window)) return false;
+  window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+  tiltListening = true;
+  return true;
+}
+async function prepareTiltControls(requirePermissionPrompt) {
+  if (!('DeviceOrientationEvent' in window)) return false;
+  const orientationEvent = window.DeviceOrientationEvent;
+  if (requirePermissionPrompt && typeof orientationEvent.requestPermission === 'function') {
+    try {
+      const result = await orientationEvent.requestPermission();
+      if (result !== 'granted') return false;
+    } catch {
+      return false;
+    }
+  }
+  return startTiltListening();
+}
+async function cycleDirectionControls() {
+  const currentIndex = DIRECTION_CONTROL_MODES.indexOf(directionControlMode);
+  const nextMode = DIRECTION_CONTROL_MODES[(currentIndex + 1) % DIRECTION_CONTROL_MODES.length];
+  if (nextMode === 'tilt') {
+    const tiltReady = await prepareTiltControls(true);
+    if (!tiltReady) {
+      setDirectionControlMode('buttons');
+      setMessage('Tilt controls are unavailable, so Direction controls stayed on Buttons.');
+      return;
+    }
+  }
+  setDirectionControlMode(nextMode);
+}
+function restoreDirectionControlMode() {
+  const savedMode = loadDirectionControlMode();
+  setDirectionControlMode(savedMode, { save: false });
+  if (savedMode === 'tilt') {
+    prepareTiltControls(false).then((tiltReady) => {
+      if (!tiltReady && directionControlMode === 'tilt') {
+        setDirectionControlMode('buttons');
+        setMessage('Tilt controls are unavailable, so Direction controls switched to Buttons.');
+      }
+    });
+  }
+}
 
 function stateForSave() {
   const now = performance.now();
@@ -619,11 +728,12 @@ function updatePlayer(dt) {
 
   let grounded = false;
   for (let i = 0; i < steps; i++) {
-    const left = input.left || input.joystickX < -0.25;
-    const right = input.right || input.joystickX > 0.25;
+    const analogX = directionControlMode === 'tilt' ? input.tiltX : input.joystickX;
+    const left = input.left || analogX < -0.25;
+    const right = input.right || analogX > 0.25;
     const dir = (right ? 1 : 0) - (left ? 1 : 0);
-    const joyMag = Math.min(1, Math.abs(input.joystickX));
-    const speedMul = (input.left || input.right) ? 1 : joyMag;
+    const analogMag = Math.min(1, Math.abs(analogX));
+    const speedMul = (input.left || input.right) ? 1 : analogMag;
     const targetVx = dir * MOVE_SPEED * speedMul;
     const accel = p.grounded ? GROUND_ACCEL : AIR_ACCEL;
     const dv = targetVx - p.vx;
@@ -1202,7 +1312,29 @@ function setupInput() {
   els.mobileJump.addEventListener('pointerup', endJumpTouch);
   els.mobileJump.addEventListener('pointercancel', endJumpTouch);
   els.mobileDefend.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!els.mobileDefend.disabled && state.goldStored > 0) input.defendQueued = true; });
+  els.directionControls.addEventListener('click', cycleDirectionControls);
+  setupMoveButton(els.mobileLeft, 'left');
+  setupMoveButton(els.mobileRight, 'right');
   setupStick();
+  restoreDirectionControlMode();
+}
+function setupMoveButton(button, inputKey) {
+  const activePointers = new Set();
+  const press = (e) => {
+    e.preventDefault();
+    activePointers.add(e.pointerId);
+    button.setPointerCapture?.(e.pointerId);
+    input[inputKey] = true;
+  };
+  const release = (e) => {
+    if (!activePointers.has(e.pointerId)) return;
+    activePointers.delete(e.pointerId);
+    input[inputKey] = activePointers.size > 0;
+  };
+  button.addEventListener('pointerdown', press);
+  button.addEventListener('pointerup', release);
+  button.addEventListener('pointercancel', release);
+  button.addEventListener('lostpointercapture', release);
 }
 function setupStick() {
   const base = els.stickBase, thumb = els.stickThumb;

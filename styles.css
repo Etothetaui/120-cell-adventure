@@ -128,11 +128,20 @@ textarea { resize: vertical; min-height: 54px; }
   #hud { order: 2; border-left: 0; border-top: 1px solid rgba(255,255,255,0.12); max-height: none; overflow: visible; }
   #mapShell { width: calc(100% - 36px); max-width: 360px; margin: 4px auto; }
   #mobileControls { width: 100%; display: flex; justify-content: space-between; align-items: center; pointer-events: none; padding: 12px 18px 14px; }
+  #mobileDirectionArea { min-width: 132px; display: grid; place-items: center; pointer-events: auto; }
   #stickBase { width: 112px; height: 72px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.20); background: rgba(5,8,15,0.42); backdrop-filter: blur(8px); pointer-events: auto; position: relative; touch-action: none; }
   #stickThumb { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin-left: -21px; margin-top: -21px; border-radius: 999px; background: rgba(237,243,255,0.85); box-shadow: 0 0 18px rgba(255,255,255,0.35); }
+  #mobileMoveButtons { display: none; grid-template-columns: repeat(2, minmax(58px, 1fr)); gap: 8px; width: 132px; }
+  #mobileMoveButtons button { min-height: 58px; border-radius: 18px; background: rgba(5,8,15,0.58); backdrop-filter: blur(8px); touch-action: none; }
   #mobileActionButtons { display: grid; grid-template-columns: 1fr; gap: 10px; pointer-events: auto; }
   #mobileActionButtons button { min-width: 92px; min-height: 52px; border-radius: 18px; background: rgba(5,8,15,0.58); backdrop-filter: blur(8px); touch-action: manipulation; }
+  #directionControls { min-width: 180px; }
   #mobileActionButtons button:disabled { background: rgba(70,76,90,0.48); color: rgba(237,243,255,0.55); }
+  #mobileControls.direction-buttons #stickBase { display: none; }
+  #mobileControls.direction-buttons #mobileMoveButtons { display: grid; }
+  #mobileControls.direction-tilt { justify-content: center; }
+  #mobileControls.direction-tilt #mobileDirectionArea { display: none; }
+  #mobileControls.direction-tilt #mobileActionButtons { justify-items: center; }
   .full-map-controls { left: 16px; right: 16px; top: 82px; max-width: none; }
   #closeMap { right: 16px; top: 20px; }
 }
