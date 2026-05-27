@@ -3,6 +3,7 @@ const { POLYTOPE_DATA, MapRenderer, AdventureSave } = window;
 const { encodeSave, decodeSave, saveLocal, loadLocal, clearLocal, GAME_VERSION } = AdventureSave;
 
 const SIZE = 15;
+const CELL_COUNT = SIZE * SIZE;
 const WALL = { N: 1, E: 2, S: 4, W: 8 };
 const DIRS = [
   { name: 'N', bit: WALL.N, dx: 0, dy: -1, index: 0 },
@@ -326,6 +327,81 @@ function generateEnemies(seed) {
     };
   });
 }
+
+function computeGraphDistances() {
+  return POLYTOPE_DATA.vertices.map(start => {
+    const dist = new Int16Array(POLYTOPE_DATA.vertices.length);
+    dist.fill(-1);
+    const queue = [start.id];
+    dist[start.id] = 0;
+    for (let head = 0; head < queue.length; head++) {
+      const id = queue[head];
+      const nextDist = dist[id] + 1;
+      for (const neighbor of POLYTOPE_DATA.vertices[id].neighbors) {
+        if (dist[neighbor] >= 0) continue;
+        dist[neighbor] = nextDist;
+        queue.push(neighbor);
+      }
+    }
+    return dist;
+  });
+}
+function computeGlobalRouteMasks(graphDistances) {
+  return POLYTOPE_DATA.vertices.map(fromVertex => {
+    const from = fromVertex.id;
+    const row = new Uint8Array(POLYTOPE_DATA.vertices.length);
+    for (const target of POLYTOPE_DATA.vertices) {
+      if (from === target.id) continue;
+      const currentDistance = graphDistances[from][target.id];
+      if (currentDistance <= 0) continue;
+      let mask = 0;
+      fromVertex.neighbors.forEach((neighbor, index) => {
+        if (graphDistances[neighbor][target.id] === currentDistance - 1) mask |= (1 << index);
+      });
+      row[target.id] = mask;
+    }
+    return row;
+  });
+}
+function cellIndex(x, y) { return y * SIZE + x; }
+function cellXY(i) { return { x: i % SIZE, y: Math.floor(i / SIZE) }; }
+function inCellBounds(x, y) { return x >= 0 && x < SIZE && y >= 0 && y < SIZE; }
+function mazeDistanceFieldFromCell(maze, targetX, targetY) {
+  const dist = new Int16Array(CELL_COUNT);
+  dist.fill(-1);
+  if (!inCellBounds(targetX, targetY)) return dist;
+  const start = cellIndex(targetX, targetY);
+  const queue = [start];
+  dist[start] = 0;
+  for (let head = 0; head < queue.length; head++) {
+    const cell = queue[head];
+    const { x, y } = cellXY(cell);
+    const walls = maze.cells[cell];
+    const nextDist = dist[cell] + 1;
+    for (const d of DIRS) {
+      if (walls & d.bit) continue;
+      const nx = x + d.dx, ny = y + d.dy;
+      if (!inCellBounds(nx, ny)) continue;
+      const next = cellIndex(nx, ny);
+      if (dist[next] >= 0) continue;
+      dist[next] = nextDist;
+      queue.push(next);
+    }
+  }
+  return dist;
+}
+function computeLocalExitDistances(mazes) {
+  return mazes.map(maze => {
+    const byDestination = {};
+    for (const door of maze.doors) {
+      byDestination[door.destination_vertex_id] = mazeDistanceFieldFromCell(maze, door.x, door.y);
+    }
+    return byDestination;
+  });
+}
+const GRAPH_DISTANCES = computeGraphDistances();
+const GLOBAL_ROUTE_MASKS = computeGlobalRouteMasks(GRAPH_DISTANCES);
+
 function computeFarthestVertices() {
   const farthest = [];
   for (const start of POLYTOPE_DATA.vertices) {
@@ -362,6 +438,7 @@ function newState(seed) {
   const markers = generateMarkers(seed);
   return {
     seed, mazes,
+    localExitDistances: computeLocalExitDistances(mazes),
     currentVertex: 0, orientation: 0, entryClosed: false,
     player: { x: 7.5, y: 7.5, vx: 0, vy: 0, angle: 0, angularVelocity: 0, grounded: false, usedDoubleJump: false, invulnerableUntil: 0 },
     discovered: new Set(), lastMarker: null,
@@ -377,6 +454,7 @@ function newState(seed) {
   };
 }
 function makeRuntimeRng(salt = 0) {
+  state.rngCounter = (state.rngCounter + 1) >>> 0;
   state.rngCounter = (state.rngCounter + 1) >>> 0;
   return mulberry32((state.seed ^ 0xA37E120 ^ Math.imul(state.rngCounter + salt, 1103515245)) >>> 0);
 }
@@ -869,27 +947,111 @@ function enemyValidMoves(enemy) {
   }
   const frozen = !!state.transition;
   if (frozen) {
-    const playerCell = displayCellToCanon(Math.floor(state.player.x), Math.floor(state.player.y), state.orientation);
+    const playerCell = playerCanonicalCell();
     return moves.filter(m => !(m.vertex === state.currentVertex && m.x === playerCell.x && m.y === playerCell.y));
   }
   return moves;
 }
+function playerCanonicalCell() {
+  const displayX = Math.max(0, Math.min(SIZE - 1, Math.floor(state.player.x)));
+  const displayY = Math.max(0, Math.min(SIZE - 1, Math.floor(state.player.y)));
+  return displayCellToCanon(displayX, displayY, state.orientation);
+}
+function chooseRandomEnemyMove(enemy, moves, rng) {
+  let choices = moves;
+  if (enemy.prevDir) {
+    const reverse = OPPOSITE[enemy.prevDir];
+    const nonReverse = choices.filter(m => m.dir !== reverse);
+    if (nonReverse.length) choices = nonReverse;
+  }
+  return choices[randInt(rng, choices.length)];
+}
+function bestMovesByScore(moves, scoreForMove) {
+  let bestScore = Infinity;
+  const best = [];
+  for (const move of moves) {
+    const score = scoreForMove(move);
+    if (!Number.isFinite(score) || score < 0) continue;
+    if (score < bestScore) {
+      bestScore = score;
+      best.length = 0;
+      best.push(move);
+    } else if (score === bestScore) {
+      best.push(move);
+    }
+  }
+  return best;
+}
+function chooseTargetedSameMazeMove(enemy, moves, playerDistanceField, rng) {
+  const currentDistance = playerDistanceField[cellIndex(enemy.x, enemy.y)];
+  if (currentDistance < 0) return null;
+  const candidates = bestMovesByScore(moves, move => {
+    if (move.vertex !== enemy.currentVertex) return Infinity;
+    const distance = playerDistanceField[cellIndex(move.x, move.y)];
+    if (currentDistance > 0 && distance >= currentDistance) return Infinity;
+    return distance;
+  });
+  return candidates.length ? candidates[randInt(rng, candidates.length)] : null;
+}
+function chooseTargetedExitMove(enemy, moves, rng) {
+  const targetVertex = state.currentVertex;
+  const routeMask = GLOBAL_ROUTE_MASKS[enemy.currentVertex]?.[targetVertex] || 0;
+  if (!routeMask) return null;
+  const maze = state.mazes[enemy.currentVertex];
+  const currentCell = cellIndex(enemy.x, enemy.y);
+  let bestDistance = Infinity;
+  let closestDoors = [];
+
+  for (const [index, destination] of POLYTOPE_DATA.vertices[enemy.currentVertex].neighbors.entries()) {
+    if (!(routeMask & (1 << index))) continue;
+    const door = maze.doors.find(d => d.destination_vertex_id === destination);
+    const distances = state.localExitDistances[enemy.currentVertex]?.[destination];
+    if (!door || !distances) continue;
+    const distance = distances[currentCell];
+    if (distance < 0) continue;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      closestDoors = [{ destination, door, distances }];
+    } else if (distance === bestDistance) {
+      closestDoors.push({ destination, door, distances });
+    }
+  }
+  if (!closestDoors.length) return null;
+  const selected = closestDoors[randInt(rng, closestDoors.length)];
+  const exitMove = moves.find(move => move.vertex === selected.destination);
+  if (bestDistance === 0 && exitMove) return exitMove;
+
+  const candidates = bestMovesByScore(moves, move => {
+    if (move.vertex !== enemy.currentVertex) return Infinity;
+    const distance = selected.distances[cellIndex(move.x, move.y)];
+    if (bestDistance > 0 && distance >= bestDistance) return Infinity;
+    return distance;
+  });
+  return candidates.length ? candidates[randInt(rng, candidates.length)] : null;
+}
+function chooseTargetedEnemyMove(enemy, moves, context, rng) {
+  if (enemy.currentVertex === state.currentVertex) {
+    return chooseTargetedSameMazeMove(enemy, moves, context.playerDistanceField, rng);
+  }
+  return chooseTargetedExitMove(enemy, moves, rng);
+}
 function moveEnemiesStep() {
   const now = performance.now();
   const rng = makeRuntimeRng(0xE11);
+  const targetChance = Math.max(0, Math.min(1, state.discovered.size / POLYTOPE_DATA.vertices.length));
+  const playerCell = playerCanonicalCell();
+  const playerDistanceField = mazeDistanceFieldFromCell(currentMaze(), playerCell.x, playerCell.y);
+  const context = { playerDistanceField };
   for (const e of state.enemies) {
     if (e.removedUntil) {
       if (now >= e.removedUntil) respawnEnemy(e);
       else continue;
     }
-    let moves = enemyValidMoves(e);
+    const moves = enemyValidMoves(e);
     if (!moves.length) continue;
-    if (e.prevDir) {
-      const reverse = OPPOSITE[e.prevDir];
-      const nonReverse = moves.filter(m => m.dir !== reverse);
-      if (nonReverse.length) moves = nonReverse;
-    }
-    const m = moves[randInt(rng, moves.length)];
+    const useTargetedMove = targetChance > 0 && (targetChance >= 1 || rng() < targetChance);
+    const targetedMove = useTargetedMove ? chooseTargetedEnemyMove(e, moves, context, rng) : null;
+    const m = targetedMove || chooseRandomEnemyMove(e, moves, rng);
     e.currentVertex = m.vertex; e.x = m.x; e.y = m.y; e.prevDir = m.dir;
     e.angle += ENEMY_ROTATIONS[randInt(rng, ENEMY_ROTATIONS.length)];
   }

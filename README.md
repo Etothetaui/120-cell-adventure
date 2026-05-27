@@ -2,7 +2,7 @@
 
 **120-cell-adventure** is a browser-based platform adventure built on the graph structure of the 120-cell. The game contains 600 interconnected vertex mazes, with each maze connected to neighboring mazes through exits that follow the 4-regular graph of the 120-cell.
 
-Current version: **0.1.0-dev**
+Current version: **0.2.0-dev**
 
 ## Play
 
@@ -23,7 +23,9 @@ The project is written as a small static web app. No server-side code is require
 - Quick animated room transitions with input locked during the transition
 - One circular discovery marker in every maze
 - Marker-based discovery and win condition: discover all 600 markers to win
-- One triangular enemy spawned for every maze, with global one-square-per-second random-walk movement and fixed inverse birth-maze color
+- One triangular enemy spawned for every maze, with global one-square-per-second movement and fixed inverse birth-maze color
+- Enemy movement alternates probabilistically between the original random movement and targeted pursuit based on discovered-maze percentage
+- Targeted enemy movement uses shortest maze distance toward the player in the same maze, or toward the best shortest-route exit when outside the player's maze
 - Enemy travel through maze exits
 - Death and respawn at the last touched marker, or the original start position if no marker has been touched
 - 7,200 gold collectibles distributed randomly throughout the 600 mazes
@@ -41,7 +43,7 @@ The project is written as a small static web app. No server-side code is require
 
 | Action | Keyboard / Mouse / Touch |
 |---|---|
-| Move left/right | `A` / `D`, left/right arrows, or mobile thumbstick |
+| Move left/right | `A` / `D`, left/right arrows, mobile thumbstick, mobile left/right buttons, or mobile tilt controls |
 | Jump | `W`, `Space`, `Z`, or mobile Jump button; tap for a short hop, hold for full height |
 | Double jump | Press jump once while airborne; early release also shortens the double jump |
 | Defend | `X`, click inside the maze area, or mobile Defend button when gold storage is unlocked |
@@ -69,6 +71,20 @@ round(discovered maze count / 50)
 Touching gold removes it from the maze. If storage has room, the gold is added to storage. If storage is full, the gold is still removed but is not added.
 
 The Defend button is hidden while gold capacity is `0`. Once capacity is greater than `0`, the button is visible; it is greyed out while stored gold is `0`. Defend spends all stored gold. If no gold is stored, defend does nothing. The defend area is a temporary transparent pentagon centered on the player with radius `stored gold / 3` maze squares. Enemies inside it are removed for 5 seconds, then respawn in the maze farthest from their birth maze. When an enemy respawns, 3 gold are added randomly to the respawn maze or one of its bordering mazes.
+
+
+## Enemy movement
+
+Each enemy still moves once per second. On every enemy movement tick, the game now chooses between two movement types:
+
+```text
+targeted move chance = discovered maze count / 600
+random move chance   = (600 - discovered maze count) / 600
+```
+
+A random move uses the original enemy movement behavior exactly. A targeted move uses shortest maze distance. If the enemy is in the same maze as the player, it moves toward the player's current cell. If the enemy is in a different maze, it uses a precomputed all-pairs 120-cell routing table to identify shortest-route candidate exits toward the player's maze, chooses the candidate exit closest to the enemy by local maze distance, breaks remaining exit ties randomly, and moves toward that exit.
+
+This makes enemy pursuit scale with discovery progress: early in a run enemies mostly wander, while late-game enemies increasingly route toward the player.
 
 ## Maze generation
 
