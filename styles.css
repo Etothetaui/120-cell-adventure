@@ -119,6 +119,7 @@ textarea { resize: vertical; min-height: 54px; }
 .full-map-controls { position: fixed; left: 42px; top: 82px; z-index: 9; display: flex; flex-wrap: wrap; gap: 8px; max-width: calc(100vw - 160px); }
 .full-map-controls button { background: rgba(5, 8, 15, 0.72); backdrop-filter: blur(8px); }
 #mobileControls { display: none; }
+#directionControls { display: none; }
 
 @media (max-width: 820px), (hover: none) and (pointer: coarse) {
   body { overflow: auto; min-height: 100svh; }
@@ -135,7 +136,7 @@ textarea { resize: vertical; min-height: 54px; }
   #mobileMoveButtons button { min-height: 58px; border-radius: 18px; background: rgba(5,8,15,0.58); backdrop-filter: blur(8px); touch-action: none; }
   #mobileActionButtons { display: grid; grid-template-columns: 1fr; gap: 10px; pointer-events: auto; }
   #mobileActionButtons button { min-width: 92px; min-height: 52px; border-radius: 18px; background: rgba(5,8,15,0.58); backdrop-filter: blur(8px); touch-action: manipulation; }
-  #directionControls { min-width: 180px; }
+  #directionControls { display: block; }
   #mobileActionButtons button:disabled { background: rgba(70,76,90,0.48); color: rgba(237,243,255,0.55); }
   #mobileControls.direction-buttons #stickBase { display: none; }
   #mobileControls.direction-buttons #mobileMoveButtons { display: grid; }

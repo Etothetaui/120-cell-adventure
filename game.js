@@ -37,9 +37,11 @@ const TAU = Math.PI * 2;
 const DIRECTION_CONTROL_STORAGE_KEY = '120-cell-adventure-direction-controls';
 const DIRECTION_CONTROL_MODES = ['joystick', 'buttons', 'tilt'];
 const DIRECTION_CONTROL_LABELS = { joystick: 'Joystick', buttons: 'Buttons', tilt: 'Tilt' };
-const TILT_FULL_DEGREES = 22;
-const TILT_DEADZONE = 0.08;
-const TILT_SMOOTHING = 0.22;
+const TILT_FULL_DEGREES = 9;
+const TILT_DEADZONE = 0.03;
+const TILT_SMOOTHING = 0.38;
+const JOYSTICK_MOVE_THRESHOLD = 0.25;
+const TILT_MOVE_THRESHOLD = 0.08;
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -729,8 +731,9 @@ function updatePlayer(dt) {
   let grounded = false;
   for (let i = 0; i < steps; i++) {
     const analogX = directionControlMode === 'tilt' ? input.tiltX : input.joystickX;
-    const left = input.left || analogX < -0.25;
-    const right = input.right || analogX > 0.25;
+    const moveThreshold = directionControlMode === 'tilt' ? TILT_MOVE_THRESHOLD : JOYSTICK_MOVE_THRESHOLD;
+    const left = input.left || analogX < -moveThreshold;
+    const right = input.right || analogX > moveThreshold;
     const dir = (right ? 1 : 0) - (left ? 1 : 0);
     const analogMag = Math.min(1, Math.abs(analogX));
     const speedMul = (input.left || input.right) ? 1 : analogMag;
