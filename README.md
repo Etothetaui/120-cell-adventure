@@ -46,7 +46,7 @@ The project is written as a small static web app. No server-side code is require
 | Move left/right | `A` / `D`, left/right arrows, mobile thumbstick, mobile left/right buttons, or mobile tilt controls |
 | Jump | `W`, `Space`, `Z`, or mobile Jump button; tap for a short hop, hold for full height |
 | Double jump | Press jump once while airborne; early release also shortens the double jump |
-| Defend | `X`, click inside the maze area, or mobile Defend button when energy storage is unlocked |
+| Defend | `X`, `L`, or mobile Defend button when energy storage is unlocked |
 | Kill/respawn | `K` or Kill player button |
 | Pause/resume game | `Esc` or Pause game button |
 | Full map | `M` or Full map button; opening it auto-pauses only when the map caused the pause |

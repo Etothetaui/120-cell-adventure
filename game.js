@@ -25,6 +25,7 @@ const JUMP_HEIGHT = 2.62;
 const JUMP_V = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT);
 const JUMP_RELEASE_MULT = 0.42;
 const JUMP_KEYS = new Set(['w', ' ', 'z', 'arrowup']);
+const DEFEND_KEYS = new Set(['x', 'l']);
 const MOVE_SPEED = 5.2;
 const AIR_ACCEL = 26;
 const GROUND_ACCEL = 40;
@@ -1517,12 +1518,15 @@ function cycleFocus() {
 function isTextEntryTarget(target) {
   return target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
 }
+function isDefendKey(event, key) {
+  return DEFEND_KEYS.has(key);
+}
 
 function setupInput() {
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     if (isTextEntryTarget(e.target)) return;
-    if (['arrowleft','arrowright',' ','arrowup','w','z','a','d','x','m','v','c','escape','k'].includes(k)) e.preventDefault();
+    if (['arrowleft','arrowright',' ','arrowup','w','z','a','d','x','l','m','v','c','escape','k'].includes(k) || isDefendKey(e, k)) e.preventDefault();
 
     if (k === 'm' && !e.repeat) { toggleFullMap(); return; }
     if (k === 'v' && !e.repeat) { cycleMapFilter(); return; }
@@ -1541,7 +1545,7 @@ function setupInput() {
       jumpKeysDown.add(k);
       refreshJumpHeld();
     }
-    if (k === 'x') { if (!e.repeat && state.energyStored > 0) input.defendQueued = true; }
+    if (isDefendKey(e, k)) { if (!e.repeat && state.energyStored > 0) input.defendQueued = true; }
     if (k === 'k') { if (!e.repeat) killPlayer(true); }
   });
   window.addEventListener('keyup', (e) => {
@@ -1553,10 +1557,6 @@ function setupInput() {
       jumpKeysDown.delete(k);
       refreshJumpHeld();
     }
-  });
-  els.maze.addEventListener('pointerdown', (e) => {
-    if (!gameplayInputAllowed()) { clearGameplayInput(); return; }
-    if (e.pointerType === 'mouse' && e.button === 0 && state.energyStored > 0) input.defendQueued = true;
   });
   els.mobileJump.addEventListener('pointerdown', (e) => {
     e.preventDefault();
